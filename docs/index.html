@@ -342,6 +342,42 @@
     .batch-area:focus { background: #fff; border-color: var(--pf); box-shadow: 0 0 0 4px var(--pf-soft); }
     .batch-area::placeholder { color: #aeb4bd; }
 
+    /* ===================== landing + Gen-Z polish ===================== */
+    .card { border-radius: 28px; }
+    .field { border-radius: 16px; }
+
+    .landing { text-align: center; }
+    .landing .cobrand { border-bottom: 0; padding-bottom: 0; margin-bottom: 16px; gap: 16px; }
+    .landing .cobrand svg.pf-logo { height: 34px; }
+    .landing .cobrand svg.sykon-logo { height: 19px; }
+    .landing-title {
+      font-family: var(--font-display); font-weight: 700; font-size: 1.95rem; line-height: 1.08;
+      letter-spacing: -0.03em; margin: 4px 0 10px; color: var(--pf-dark);
+    }
+    @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+      .landing-title {
+        background: linear-gradient(110deg, #ff8568, #ef5e4e 55%, #d6361f);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+    }
+    .landing .sub { text-align: center; margin-bottom: 22px; }
+    .credit { margin: 22px 0 0; font-size: 0.8rem; color: #aab0b8; }
+    .credit a { color: #8b929c; text-decoration: none; font-weight: 600; border-bottom: 1.5px dotted #c9ced6; }
+    .credit a:hover { color: var(--pf-dark); border-bottom-color: var(--pf); }
+
+    .btn-primary { transition: background var(--dur-base) var(--ease-standard), transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-base) var(--ease-standard); }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 14px 28px -14px rgba(17,17,17,0.5); }
+    .btn-primary:active { transform: translateY(0) scale(0.98); }
+    .btn-primary.big { padding: 17px 28px; font-size: 1.05rem; }
+
+    .back-link { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-family: var(--font-body); font-size: 0.84rem; font-weight: 500; cursor: pointer; padding: 4px 0; margin-bottom: 8px; }
+    .back-link:hover { color: var(--pf-dark); }
+
+    /* Gen-Z tab pills */
+    .tb-link { border-radius: 999px; }
+    .tb-link.active { background: var(--pf); color: #fff; }
+    .tb-link.active:hover { background: var(--pf-dark); color: #fff; }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
       .bg .aurora, .bg .grid, .blob { display: none; }
@@ -377,8 +413,18 @@
     </nav>
   </header>
 
-  <!-- AUTH VIEW (shown when signed out) -->
-  <main class="card" id="authView" style="position:relative;z-index:1;">
+  <!-- LANDING (shown when signed out) -->
+  <main class="card landing" id="landingView" style="position:relative;z-index:1;">
+    <div class="cobrand" id="landingCobrand"></div>
+    <h1 class="landing-title">Listing photos, sorted 📸</h1>
+    <p class="sub">PropertyFinder × Sykon — grab every listing photo, property &amp; community, full-res and in tidy folders.</p>
+    <button class="btn-primary big" id="getStarted" type="button">Get Started →</button>
+    <p class="credit">Made by <a href="https://github.com/MrUsamaKhalid" target="_blank" rel="noopener">Usama</a> with 🤍 for Sykon Properties.</p>
+  </main>
+
+  <!-- AUTH VIEW -->
+  <main class="card" id="authView" style="position:relative;z-index:1;" hidden>
+    <button class="back-link" id="authBack" type="button">← Back</button>
     <div class="cobrand" id="authCobrand"></div>
     <h1 id="authTitle">Sign in</h1>
     <p class="authsub" id="authSub">Sign in to download listing photos and keep your history.</p>
@@ -410,6 +456,14 @@
   <main class="card" id="batchView" style="position:relative;z-index:1;max-width:520px;" hidden>
     <h1>Batch download</h1>
     <p class="sub">Paste multiple PropertyFinder links — one per line. They run one at a time; then grab them all as one ZIP, or download any row individually. Keep this tab open until it finishes.</p>
+    <div class="field" style="margin-bottom: 12px;">
+      <span class="lead" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+        </svg>
+      </span>
+      <input id="batchAgent" type="text" autocomplete="off" aria-label="Agent name" placeholder="Agent name (optional)" />
+    </div>
     <textarea id="batchUrls" class="batch-area" aria-label="PropertyFinder listing URLs, one per line"
       placeholder="https://www.propertyfinder.ae/en/plp/...&#10;https://www.propertyfinder.ae/en/plp/..."></textarea>
     <button id="batchGo" class="btn-primary" type="button" style="margin-top: 14px;">Process listings</button>
@@ -469,6 +523,18 @@
           </span>
           <input id="nameInput" type="text" autocomplete="off" aria-label="Listing name"
                  placeholder="Name this download (optional)" />
+        </div>
+
+        <div class="field" style="margin-top: 10px;">
+          <span class="lead" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </span>
+          <input id="agentInput" type="text" autocomplete="off" aria-label="Agent name"
+                 placeholder="Agent name (optional)" />
         </div>
 
         <ul class="feats">
@@ -536,6 +602,7 @@
 
     const urlInput = document.getElementById("url");
     const nameInput = document.getElementById("nameInput");
+    const agentInput = document.getElementById("agentInput");
     const goBtn = document.getElementById("go");
     const pasteBtn = document.getElementById("paste");
     const statusEl = document.getElementById("status");
@@ -610,42 +677,11 @@
         card.style.transform = "";
       });
 
-      // magnetic CTA — shiver-free: fixed base center + rAF lerp, no transform transition fight
-      const STRENGTH = 0.14, EASE = 0.16, MAX = 14;
-      let baseCX = 0, baseCY = 0, curX = 0, curY = 0, tgtX = 0, tgtY = 0, rafId = null, inside = false;
-
-      function ctaFrame() {
-        curX += (tgtX - curX) * EASE;
-        curY += (tgtY - curY) * EASE;
-        goBtn.style.transform = "translate3d(" + curX.toFixed(2) + "px," + curY.toFixed(2) + "px,0)";
-        const settled = Math.abs(tgtX - curX) < 0.1 && Math.abs(tgtY - curY) < 0.1;
-        if (!settled || inside) {
-          rafId = requestAnimationFrame(ctaFrame);
-        } else {
-          rafId = null;
-          goBtn.style.transform = "translate3d(0,0,0)";
-        }
-      }
-      function ctaEnsure() { if (!rafId) rafId = requestAnimationFrame(ctaFrame); }
-
-      goBtn.addEventListener("mouseenter", function (e) {
-        inside = true;
-        const r = goBtn.getBoundingClientRect();   // rest rect, captured ONCE
-        baseCX = r.left + r.width / 2;
-        baseCY = r.top + r.height / 2;
+      // CTA: coral gradient fill reveals from the cursor entry point (no button movement)
+      goBtn.addEventListener("mousemove", function (e) {
+        const r = goBtn.getBoundingClientRect();
         goBtn.style.setProperty("--cx", ((e.clientX - r.left) / r.width * 100) + "%");
         goBtn.style.setProperty("--cy", ((e.clientY - r.top) / r.height * 100) + "%");
-        ctaEnsure();
-      });
-      goBtn.addEventListener("mousemove", function (e) {
-        const dx = (e.clientX - baseCX) * STRENGTH;
-        const dy = (e.clientY - baseCY) * STRENGTH;
-        tgtX = Math.max(-MAX, Math.min(MAX, dx));
-        tgtY = Math.max(-MAX, Math.min(MAX, dy));
-        ctaEnsure();
-      });
-      goBtn.addEventListener("mouseleave", function () {
-        inside = false; tgtX = 0; tgtY = 0; ctaEnsure();
       });
     })();
 
@@ -757,10 +793,12 @@
     let inFlight = false;
     let lastUrl = "";
     let lastName = "";
+    let lastAgent = "";
     let lastBlob = null;
     let lastRowId = null;
     let lastFilename = "";
     let currentUserId = null;
+    function saveAgent(v) { try { if (v) localStorage.setItem("pf_agent", v); } catch (e) {} }
     function sanitizeName(s) {
       return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
         .replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 80);
@@ -821,6 +859,8 @@
       const url = urlInput.value.trim();
       lastUrl = url;
       lastName = nameInput ? nameInput.value.trim() : "";
+      lastAgent = agentInput ? agentInput.value.trim() : "";
+      saveAgent(lastAgent);
       lastBlob = null; lastRowId = null;
       if (document.getElementById("saveRow")) document.getElementById("saveRow").hidden = true;
       if (!url) { setStatus("Please paste a PropertyFinder link.", "err"); return; }
@@ -900,6 +940,7 @@
 
     const topbarEl = document.getElementById("topbar");
     const authView = document.getElementById("authView");
+    const landingView = document.getElementById("landingView");
     const appView = document.getElementById("appView");
     const historyView = document.getElementById("historyView");
     const batchView = document.getElementById("batchView");
@@ -908,6 +949,7 @@
     const batchList = document.getElementById("batchList");
     const batchSummary = document.getElementById("batchSummary");
     const batchAll = document.getElementById("batchAll");
+    const batchAgent = document.getElementById("batchAgent");
     const tbEmail = document.getElementById("tbEmail");
     const authEmail = document.getElementById("authEmail");
     const authPassword = document.getElementById("authPassword");
@@ -946,14 +988,23 @@
     }
     if (saveBtn) saveBtn.addEventListener("click", saveToCloud);
 
-    // reuse the co-brand SVGs in the auth card without duplicating markup
+    // reuse the co-brand SVGs in the landing + auth cards without duplicating markup
     (function () {
       const src = document.querySelector("#appView .cobrand");
-      const dst = document.getElementById("authCobrand");
-      if (src && dst) dst.innerHTML = src.innerHTML;
+      if (!src) return;
+      const a = document.getElementById("authCobrand"); if (a) a.innerHTML = src.innerHTML;
+      const l = document.getElementById("landingCobrand"); if (l) l.innerHTML = src.innerHTML;
+    })();
+    // remember the agent name across sessions
+    (function () {
+      try {
+        const a = localStorage.getItem("pf_agent");
+        if (a) { if (agentInput) agentInput.value = a; if (batchAgent) batchAgent.value = a; }
+      } catch (e) {}
     })();
 
     function showView(name) {
+      landingView.hidden = name !== "landing";
       authView.hidden = name !== "auth";
       appView.hidden = name !== "app";
       historyView.hidden = name !== "history";
@@ -969,12 +1020,12 @@
         document.body.classList.add("authed");
         topbarEl.hidden = false;
         tbEmail.textContent = session.user.email || "";
-        if (appView.hidden && historyView.hidden) showView("app");
+        if (appView.hidden && historyView.hidden && batchView.hidden) showView("app");
       } else {
         currentUserId = null;
         document.body.classList.remove("authed");
         topbarEl.hidden = true;
-        showView("auth");
+        showView("landing");
       }
     }
 
@@ -983,12 +1034,13 @@
       authStatusEl.textContent = msg;
     }
 
-    async function insertHistory(url, name, msg) {
+    async function insertHistory(url, name, agent, msg) {
       if (!sb || !url) return null;
       try {
         const payload = {
           listing_url: url,
           title: name || msg.title || null,
+          agent_name: agent || null,
           property_count: msg.property || 0,
           community_count: msg.community || 0,
           total_count: msg.count || 0,
@@ -1000,7 +1052,7 @@
       return null;
     }
     async function recordHistory(msg) {
-      const id = await insertHistory(lastUrl, sanitizeName(lastName), msg);
+      const id = await insertHistory(lastUrl, sanitizeName(lastName), lastAgent, msg);
       if (id) { lastRowId = id; showSaveAffordance(); }
     }
 
@@ -1026,7 +1078,8 @@
         const m = document.createElement("p"); m.className = "hist-meta";
         m.textContent =
           (row.property_count || 0) + " property · " + (row.community_count || 0) +
-          " community · " + new Date(row.created_at).toLocaleString() +
+          " community" + (row.agent_name ? " · by " + row.agent_name : "") +
+          " · " + new Date(row.created_at).toLocaleString() +
           (row.storage_path ? " · saved" : "");
         const actions = document.createElement("div"); actions.className = "hist-actions";
         const fname = (sanitizeName(row.title) || "propertyfinder-photos") + ".zip";
@@ -1072,6 +1125,8 @@
     document.getElementById("navHistory").addEventListener("click", function () { showView("history"); loadHistory(); });
     document.getElementById("histRefresh").addEventListener("click", loadHistory);
     document.getElementById("signout").addEventListener("click", async function () { if (sb) await sb.auth.signOut(); });
+    document.getElementById("getStarted").addEventListener("click", function () { showView("auth"); });
+    document.getElementById("authBack").addEventListener("click", function () { showView("landing"); });
 
     /* ---- batch: sequential (concurrency = 1) so the free worker never OOMs ---- */
     let batchRunning = false;
@@ -1094,6 +1149,7 @@
         return;
       }
       batchRunning = true; batchGo.disabled = true; batchList.innerHTML = ""; batchAll.hidden = true;
+      saveAgent((batchAgent && batchAgent.value.trim()) || "");
       const collected = [];
       let ok = 0, fail = 0;
       try {
@@ -1135,7 +1191,7 @@
               dl.addEventListener("click", function () { downloadBytes(bytes, base + ".zip"); });
               actions.appendChild(dl);
             }
-            await insertHistory(url, sanitizeName(msg.title), msg);
+            await insertHistory(url, sanitizeName(msg.title), (batchAgent && batchAgent.value.trim()) || "", msg);
             t.textContent = msg.title || url;
             m.textContent = "✓ " + (msg.property || 0) + " property · " + (msg.community || 0) + " community (" + (msg.count || 0) + ")";
             li.classList.add("ok"); ok++;
