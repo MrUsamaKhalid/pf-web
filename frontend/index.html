@@ -6,16 +6,16 @@
   <title>PropertyFinder Photo Downloader</title>
   <style>
     :root {
+      --bg: #e3e5cf;
       --card: #ffffff;
-      --ink: #18181b;
-      --muted: #6b7280;
-      --line: #ececf1;
-      --field-line: #e5e7eb;
-      --green: #22c55e;
-      --green-dark: #16a34a;
-      --violet: #7c3aed;
-      --err: #dc2626;
-      --ok: #16a34a;
+      --ink: #161618;
+      --muted: #757a6c;
+      --field: #f3f4ec;
+      --line: #eeeeea;
+      --lime: #cdeb5b;
+      --lime-dark: #bcdc46;
+      --err: #c0392b;
+      --ok: #2f9e44;
     }
 
     * { box-sizing: border-box; }
@@ -28,9 +28,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
         Helvetica, Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
-      background-color: #edeef1;
-      background-image: radial-gradient(rgba(20, 20, 40, 0.07) 1px, transparent 1px);
-      background-size: 22px 22px;
+      background: var(--bg);
     }
 
     body {
@@ -41,102 +39,62 @@
     }
 
     .card {
-      position: relative;
-      overflow: hidden;
       width: 100%;
       max-width: 440px;
       background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 24px;
+      border-radius: 28px;
       padding: 30px 28px;
-      box-shadow: 0 30px 60px -24px rgba(40, 40, 90, 0.28);
+      box-shadow: 0 24px 55px -22px rgba(60, 65, 40, 0.32);
     }
-
-    /* Soft gradient glow bleeding from the top-right corner */
-    .card::before {
-      content: "";
-      position: absolute;
-      top: -95px;
-      right: -70px;
-      width: 470px;
-      height: 320px;
-      border-radius: 50%;
-      background: linear-gradient(
-        115deg,
-        #9be7ff 0%,
-        #a5c8ff 38%,
-        #a9a8ff 64%,
-        #d6b8fb 100%
-      );
-      filter: blur(48px);
-      opacity: 0.6;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    .content { position: relative; z-index: 1; }
 
     .badge {
-      width: 60px;
-      height: 60px;
+      width: 56px;
+      height: 56px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: linear-gradient(145deg, #34d36b, #16a34a);
-      box-shadow: 0 8px 18px -4px rgba(22, 163, 74, 0.5),
-        0 0 0 6px rgba(34, 197, 94, 0.12);
-      margin-bottom: 22px;
+      background: var(--lime);
+      box-shadow: 0 8px 18px -6px rgba(170, 200, 60, 0.6);
+      margin-bottom: 20px;
     }
-    .badge svg { width: 28px; height: 28px; }
-
-    .title-row {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
+    .badge svg { width: 26px; height: 26px; }
 
     h1 {
-      font-size: 1.45rem;
+      font-size: 1.55rem;
       font-weight: 700;
-      letter-spacing: -0.2px;
-      margin: 0;
-    }
-
-    .pill {
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: #3f3f46;
-      background: #f3f4f6;
-      border: 1px solid #e7e7ee;
-      border-radius: 999px;
-      padding: 4px 11px;
-      line-height: 1;
+      letter-spacing: -0.4px;
+      line-height: 1.2;
+      margin: 0 0 10px;
     }
 
     .sub {
       color: var(--muted);
-      font-size: 0.95rem;
+      font-size: 0.96rem;
       line-height: 1.55;
-      margin: 0 0 24px;
+      margin: 0 0 22px;
     }
 
     .field {
       display: flex;
       align-items: center;
-      gap: 6px;
-      background: #fff;
-      border: 1px solid var(--field-line);
-      border-radius: 12px;
-      padding: 4px 6px 4px 16px;
+      gap: 8px;
+      background: var(--field);
+      border: 1px solid transparent;
+      border-radius: 16px;
+      padding: 6px 6px 6px 16px;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .field:focus-within {
-      border-color: #a855f7;
-      box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.13);
+      border-color: #dfe3cf;
+      box-shadow: 0 0 0 4px rgba(205, 235, 91, 0.4);
     }
+    .field .lead {
+      flex: none;
+      display: flex;
+      color: #9aa093;
+    }
+    .field .lead svg { width: 18px; height: 18px; }
     .field input {
       flex: 1;
       min-width: 0;
@@ -144,62 +102,64 @@
       outline: none;
       background: transparent;
       color: var(--ink);
-      font-size: 0.98rem;
-      padding: 13px 0;
+      font-size: 0.97rem;
+      padding: 12px 0;
     }
-    .field input::placeholder { color: #aab0bb; }
+    .field input::placeholder { color: #a7ac9e; }
 
     .icon-btn {
       flex: none;
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 12px;
+      background: var(--lime);
+      color: var(--ink);
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 38px;
-      height: 38px;
-      border: none;
-      background: transparent;
-      color: #9aa0a6;
-      border-radius: 9px;
       cursor: pointer;
-      transition: background 0.15s ease, color 0.15s ease;
+      transition: background 0.15s ease, transform 0.05s ease;
     }
-    .icon-btn:hover { background: #f3f4f6; color: #4b5563; }
-    .icon-btn svg { width: 19px; height: 19px; }
+    .icon-btn:hover { background: var(--lime-dark); }
+    .icon-btn:active { transform: scale(0.94); }
+    .icon-btn svg { width: 18px; height: 18px; }
 
-    .checks {
-      list-style: none;
-      margin: 20px 0 24px;
-      padding: 0;
+    .tags {
       display: flex;
-      flex-direction: column;
-      gap: 12px;
+      flex-wrap: wrap;
+      gap: 9px;
+      margin: 22px 0 26px;
     }
-    .checks li {
-      display: flex;
+    .tag {
+      display: inline-flex;
       align-items: center;
-      gap: 10px;
-      font-size: 0.92rem;
-      color: #374151;
+      gap: 7px;
+      background: var(--ink);
+      color: #fff;
+      border-radius: 100px;
+      padding: 9px 14px;
+      font-size: 0.83rem;
+      font-weight: 500;
     }
-    .checks svg { width: 20px; height: 20px; flex: none; }
+    .tag svg { width: 15px; height: 15px; flex: none; }
 
     .cta {
-      position: relative;
       width: 100%;
-      padding: 16px;
-      font-size: 1rem;
+      padding: 17px;
+      font-size: 1.02rem;
       font-weight: 600;
       color: #fff;
+      background: var(--ink);
       border: none;
-      border-radius: 12px;
+      border-radius: 100px;
       cursor: pointer;
-      background: linear-gradient(95deg, #6d5ef0 0%, #a855f7 50%, #ec4899 100%);
-      box-shadow: 0 14px 30px -10px rgba(168, 85, 247, 0.65);
-      transition: transform 0.05s ease, filter 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 12px 26px -12px rgba(0, 0, 0, 0.5);
+      transition: background 0.15s ease, transform 0.05s ease;
     }
-    .cta:hover:not(:disabled) { filter: brightness(1.05); }
+    .cta:hover:not(:disabled) { background: #000; }
     .cta:active:not(:disabled) { transform: translateY(1px); }
-    .cta:disabled { opacity: 0.65; cursor: not-allowed; box-shadow: none; }
+    .cta:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 
     .status {
       min-height: 20px;
@@ -208,7 +168,7 @@
       text-align: center;
       color: var(--muted);
     }
-    .status.info { color: var(--violet); }
+    .status.info { color: var(--ink); }
     .status.ok { color: var(--ok); }
     .status.err { color: var(--err); }
 
@@ -217,8 +177,8 @@
       width: 14px;
       height: 14px;
       margin-right: 8px;
-      border: 2px solid rgba(124, 58, 237, 0.25);
-      border-top-color: var(--violet);
+      border: 2px solid rgba(22, 22, 24, 0.25);
+      border-top-color: var(--ink);
       border-radius: 50%;
       vertical-align: -2px;
       animation: spin 0.7s linear infinite;
@@ -229,7 +189,7 @@
       margin: 18px 0 0;
       padding-top: 16px;
       border-top: 1px solid var(--line);
-      color: #9aa0a6;
+      color: #9aa093;
       font-size: 0.8rem;
       line-height: 1.5;
       text-align: center;
@@ -238,73 +198,78 @@
 </head>
 <body>
   <main class="card">
-    <div class="content">
-      <div class="badge" aria-hidden="true">
-        <!-- download icon -->
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-      </div>
-
-      <div class="title-row">
-        <h1>PropertyFinder Photos</h1>
-        <span class="pill">ZIP</span>
-      </div>
-
-      <p class="sub">
-        Paste a PropertyFinder listing link and download every photo as a single
-        ZIP &mdash; ready to edit in Photoshop. 📸
-      </p>
-
-      <div class="field">
-        <input
-          id="url"
-          type="url"
-          inputmode="url"
-          autocomplete="off"
-          aria-label="PropertyFinder listing URL"
-          placeholder="https://www.propertyfinder.ae/en/plp/..."
-        />
-        <button id="paste" class="icon-btn" type="button" title="Paste from clipboard"
-                aria-label="Paste from clipboard">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <rect x="8" y="2" width="8" height="4" rx="1" />
-            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-          </svg>
-        </button>
-      </div>
-
-      <ul class="checks">
-        <li>
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" fill="#22c55e" />
-            <path d="M8 12.4l2.6 2.6L16 9" stroke="#fff" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Skips logos, icons &amp; agent photos
-        </li>
-        <li>
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" fill="#22c55e" />
-            <path d="M8 12.4l2.6 2.6L16 9" stroke="#fff" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          High-res photos, duplicates removed
-        </li>
-      </ul>
-
-      <button id="go" class="cta">Download Photos</button>
-
-      <div id="status" class="status"></div>
-
-      <p class="note">
-        The ZIP downloads straight to your browser. Extract it and edit in Photoshop.
-      </p>
+    <div class="badge" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#161618" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
     </div>
+
+    <h1>Download listing photos</h1>
+
+    <p class="sub">
+      Paste a PropertyFinder link and get every photo in one clean ZIP, ready
+      to edit in Photoshop.
+    </p>
+
+    <div class="field">
+      <span class="lead" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      </span>
+      <input
+        id="url"
+        type="url"
+        inputmode="url"
+        autocomplete="off"
+        aria-label="PropertyFinder listing URL"
+        placeholder="https://www.propertyfinder.ae/en/plp/..."
+      />
+      <button id="paste" class="icon-btn" type="button" title="Paste from clipboard"
+              aria-label="Paste from clipboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#161618" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="8" y="2" width="8" height="4" rx="1" />
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="tags">
+      <span class="tag">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        No logos or agents
+      </span>
+      <span class="tag">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        Duplicates removed
+      </span>
+      <span class="tag">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        High-res ~1200px
+      </span>
+      <span class="tag">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        Auto-named ZIP
+      </span>
+    </div>
+
+    <button id="go" class="cta">Download Photos</button>
+
+    <div id="status" class="status"></div>
+
+    <p class="note">
+      The ZIP downloads straight to your browser. Extract it and edit in Photoshop.
+    </p>
   </main>
 
   <script>
@@ -338,7 +303,7 @@
         const text = await navigator.clipboard.readText();
         if (text) urlInput.value = text.trim();
       } catch (e) {
-        // Clipboard blocked (permissions / insecure context) - let the user paste manually.
+        // Clipboard blocked (permissions / insecure context) - paste manually.
       }
       urlInput.focus();
     }
