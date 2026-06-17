@@ -433,6 +433,18 @@
           </button>
         </div>
 
+        <div class="field" style="margin-top: 10px;">
+          <span class="lead" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+              <circle cx="7" cy="7" r="1.3" fill="currentColor" stroke="none" />
+            </svg>
+          </span>
+          <input id="nameInput" type="text" autocomplete="off" aria-label="Listing name"
+                 placeholder="Name this download (optional)" />
+        </div>
+
         <ul class="feats">
           <li class="feat">
             <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3"
@@ -475,6 +487,10 @@
 
         <div id="status" class="status"></div>
 
+        <div id="saveRow" style="margin-top: 12px;" hidden>
+          <button id="saveBtn" class="btn-ghost" type="button">☁ Save this ZIP to my account</button>
+        </div>
+
         <div id="bkstatus" class="bkstatus checking" aria-live="polite">
           <span class="bkdot" aria-hidden="true"></span><span id="bktext">Checking server…</span>
         </div>
@@ -493,6 +509,7 @@
     const BACKEND_URL = "https://pf-web-d4in.onrender.com";
 
     const urlInput = document.getElementById("url");
+    const nameInput = document.getElementById("nameInput");
     const goBtn = document.getElementById("go");
     const pasteBtn = document.getElementById("paste");
     const statusEl = document.getElementById("status");
@@ -666,9 +683,13 @@
       barWrap.hidden = false; barFill.style.width = "100%";
       try {
         const blob = b64ToBlob(msg.zip, "application/zip");
+        const cleanName = sanitizeName(lastName);
+        const dlName = cleanName ? cleanName + ".zip" : (msg.filename || "propertyfinder-photos.zip");
+        lastBlob = blob;
+        lastFilename = dlName;
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = objectUrl; a.download = msg.filename || "propertyfinder-photos.zip";
+        a.href = objectUrl; a.download = dlName;
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(objectUrl);
 
@@ -702,10 +723,22 @@
 
     let inFlight = false;
     let lastUrl = "";
+    let lastName = "";
+    let lastBlob = null;
+    let lastRowId = null;
+    let lastFilename = "";
+    let currentUserId = null;
+    function sanitizeName(s) {
+      return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
+        .replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 80);
+    }
     async function downloadPhotos() {
       if (inFlight) return;
       const url = urlInput.value.trim();
       lastUrl = url;
+      lastName = nameInput ? nameInput.value.trim() : "";
+      lastBlob = null; lastRowId = null;
+      if (document.getElementById("saveRow")) document.getElementById("saveRow").hidden = true;
       if (!url) { setStatus("Please paste a PropertyFinder link.", "err"); return; }
       if (!BACKEND_URL || BACKEND_URL.indexOf("PASTE_") !== -1) {
         setStatus("Backend URL is not set yet.", "err"); return;
@@ -850,6 +883,36 @@
     const authMagic = document.getElementById("authMagic");
     const authSwitch = document.getElementById("authSwitch");
     const authStatusEl = document.getElementById("authStatus");
+    const saveRow = document.getElementById("saveRow");
+    const saveBtn = document.getElementById("saveBtn");
+
+    function showSaveAffordance() {
+      if (!saveRow || !saveBtn) return;
+      if (currentUserId && lastBlob && lastRowId) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "☁ Save this ZIP to my account";
+        saveRow.hidden = false;
+      }
+    }
+
+    async function saveToCloud() {
+      if (!sb || !currentUserId || !lastBlob || !lastRowId) return;
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+      const path = currentUserId + "/" + lastRowId + ".zip";
+      try {
+        const up = await sb.storage.from("zips").upload(path, lastBlob, {
+          contentType: "application/zip", upsert: true,
+        });
+        if (up.error) throw up.error;
+        await sb.from("downloads").update({ storage_path: path, zip_bytes: lastBlob.size }).eq("id", lastRowId);
+        saveBtn.textContent = "✓ Saved to your account";
+      } catch (e) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save failed — try again";
+      }
+    }
+    if (saveBtn) saveBtn.addEventListener("click", saveToCloud);
 
     // reuse the co-brand SVGs in the auth card without duplicating markup
     (function () {
@@ -868,11 +931,13 @@
 
     function onSession(session) {
       if (session && session.user) {
+        currentUserId = session.user.id;
         document.body.classList.add("authed");
         topbarEl.hidden = false;
         tbEmail.textContent = session.user.email || "";
         if (appView.hidden && historyView.hidden) showView("app");
       } else {
+        currentUserId = null;
         document.body.classList.remove("authed");
         topbarEl.hidden = true;
         showView("auth");
@@ -887,13 +952,15 @@
     async function recordHistory(msg) {
       if (!sb || !lastUrl) return;
       try {
-        await sb.from("downloads").insert({
+        const title = sanitizeName(lastName) || msg.title || null;
+        const { data, error } = await sb.from("downloads").insert({
           listing_url: lastUrl,
-          title: msg.title || null,
+          title: title,
           property_count: msg.property || 0,
           community_count: msg.community || 0,
           total_count: msg.count || 0,
-        });
+        }).select("id").single();
+        if (!error && data) { lastRowId = data.id; showSaveAffordance(); }
       } catch (e) { /* history is best-effort */ }
     }
 
@@ -914,20 +981,47 @@
       data.forEach(function (row) {
         const li = document.createElement("li");
         li.className = "hist-item";
-        li.innerHTML =
-          '<p class="hist-title"></p><p class="hist-meta"></p>' +
-          '<div class="hist-actions"><button class="hist-btn redl" type="button">Download again</button>' +
-          '<a class="hist-btn open" target="_blank" rel="noopener">Open listing</a></div>';
-        li.querySelector(".hist-title").textContent = row.title || row.listing_url;
-        li.querySelector(".hist-meta").textContent =
+        const t = document.createElement("p"); t.className = "hist-title";
+        t.textContent = row.title || row.listing_url;
+        const m = document.createElement("p"); m.className = "hist-meta";
+        m.textContent =
           (row.property_count || 0) + " property · " + (row.community_count || 0) +
-          " community · " + new Date(row.created_at).toLocaleString();
-        li.querySelector(".open").href = row.listing_url;
-        li.querySelector(".redl").addEventListener("click", function () {
-          urlInput.value = row.listing_url;
-          showView("app");
-          downloadPhotos();
-        });
+          " community · " + new Date(row.created_at).toLocaleString() +
+          (row.storage_path ? " · saved" : "");
+        const actions = document.createElement("div"); actions.className = "hist-actions";
+        const fname = (sanitizeName(row.title) || "propertyfinder-photos") + ".zip";
+
+        if (row.storage_path) {
+          const dl = document.createElement("button");
+          dl.className = "hist-btn"; dl.type = "button"; dl.textContent = "Download";
+          dl.addEventListener("click", async function () {
+            const r = await sb.storage.from("zips").createSignedUrl(row.storage_path, 3600, { download: fname });
+            if (r.data) { const a = document.createElement("a"); a.href = r.data.signedUrl; a.download = fname; document.body.appendChild(a); a.click(); a.remove(); }
+          });
+          const sh = document.createElement("button");
+          sh.className = "hist-btn"; sh.type = "button"; sh.textContent = "Copy share link";
+          sh.addEventListener("click", async function () {
+            const r = await sb.storage.from("zips").createSignedUrl(row.storage_path, 60 * 60 * 24 * 30, { download: fname });
+            if (r.data) { try { await navigator.clipboard.writeText(r.data.signedUrl); sh.textContent = "✓ Copied (30-day link)"; } catch (e) { sh.textContent = "Copy failed"; } }
+          });
+          actions.appendChild(dl); actions.appendChild(sh);
+        } else {
+          const re = document.createElement("button");
+          re.className = "hist-btn"; re.type = "button"; re.textContent = "Download again";
+          re.addEventListener("click", function () {
+            urlInput.value = row.listing_url;
+            if (nameInput) nameInput.value = row.title || "";
+            showView("app");
+            downloadPhotos();
+          });
+          actions.appendChild(re);
+        }
+        const open = document.createElement("a");
+        open.className = "hist-btn"; open.target = "_blank"; open.rel = "noopener";
+        open.href = row.listing_url; open.textContent = "Open listing";
+        actions.appendChild(open);
+
+        li.appendChild(t); li.appendChild(m); li.appendChild(actions);
         list.appendChild(li);
       });
     }
@@ -944,7 +1038,7 @@
       document.getElementById("authTitle").textContent = signin ? "Sign in" : "Create account";
       document.getElementById("authSub").textContent = signin
         ? "Sign in to download listing photos and keep your history."
-        : "Create an account to save your download history.";
+        : "Create an account with your @sykonproperties.ae email.";
       authSubmit.textContent = signin ? "Sign in" : "Create account";
       authPassword.setAttribute("autocomplete", signin ? "current-password" : "new-password");
       document.getElementById("authToggleText").textContent = signin ? "No account?" : "Have an account?";
@@ -965,9 +1059,18 @@
           const { error } = await sb.auth.signInWithPassword({ email: email, password: password });
           if (error) setAuthStatus(error.message, "err");
         } else {
+          if ((email.toLowerCase().split("@")[1] || "") !== "sykonproperties.ae") {
+            setAuthStatus("Sign-ups are limited to @sykonproperties.ae emails.", "err");
+            authSubmit.disabled = false; return;
+          }
           const { data, error } = await sb.auth.signUp({ email: email, password: password });
-          if (error) setAuthStatus(error.message, "err");
-          else if (!data.session) setAuthStatus("Check your email to confirm, then sign in.", "ok");
+          if (error) {
+            const msg = /domain|database error|sykonproperties/i.test(error.message || "")
+              ? "Sign-ups are limited to @sykonproperties.ae emails." : error.message;
+            setAuthStatus(msg, "err");
+          } else if (!data.session) {
+            setAuthStatus("Check your email to confirm, then sign in.", "ok");
+          }
         }
       } catch (e) {
         setAuthStatus("Something went wrong. Please try again.", "err");
