@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PropertyFinder Photo Downloader</title>
+  <title>PropertyFinder Photo Downloader · Sykon Properties</title>
   <style>
     :root {
-      --bg: #e3e5cf;
-      --card: #ffffff;
-      --ink: #161618;
-      --muted: #757a6c;
-      --field: #f3f4ec;
-      --line: #eeeeea;
-      --lime: #cdeb5b;
-      --lime-dark: #bcdc46;
+      --bg: #eef0f1;
+      --card: #fefefe;
+      --ink: #111111;
+      --muted: #6b7280;
+      --field: #f4f4f5;
+      --line: #ececec;
+      --pf: #ef5e4e;
+      --pf-dark: #e0492f;
       --err: #c0392b;
-      --ok: #2f9e44;
+      --ok: #1f9d57;
     }
 
     * { box-sizing: border-box; }
@@ -42,35 +42,36 @@
       width: 100%;
       max-width: 440px;
       background: var(--card);
-      border-radius: 28px;
-      padding: 30px 28px;
-      box-shadow: 0 24px 55px -22px rgba(60, 65, 40, 0.32);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 26px 26px 24px;
+      box-shadow: 0 24px 55px -22px rgba(40, 45, 50, 0.28);
     }
 
-    .badge {
-      width: 56px;
-      height: 56px;
-      border-radius: 50%;
+    .cobrand {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--lime);
-      box-shadow: 0 8px 18px -6px rgba(170, 200, 60, 0.6);
-      margin-bottom: 20px;
+      gap: 14px;
+      padding-bottom: 22px;
+      margin-bottom: 22px;
+      border-bottom: 1px solid var(--line);
     }
-    .badge svg { width: 26px; height: 26px; }
+    .cobrand img.pf-logo { height: 30px; width: auto; display: block; }
+    .cobrand img.sykon-logo { height: 17px; width: auto; display: block; }
+    .cobrand .x { color: #c7c9cc; font-size: 1rem; font-weight: 400; }
 
     h1 {
-      font-size: 1.55rem;
+      font-size: 1.4rem;
       font-weight: 700;
-      letter-spacing: -0.4px;
+      letter-spacing: -0.3px;
       line-height: 1.2;
-      margin: 0 0 10px;
+      margin: 0 0 9px;
     }
 
     .sub {
       color: var(--muted);
-      font-size: 0.96rem;
+      font-size: 0.95rem;
       line-height: 1.55;
       margin: 0 0 22px;
     }
@@ -81,19 +82,15 @@
       gap: 8px;
       background: var(--field);
       border: 1px solid transparent;
-      border-radius: 16px;
-      padding: 6px 6px 6px 16px;
+      border-radius: 14px;
+      padding: 5px 5px 5px 14px;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
     .field:focus-within {
-      border-color: #dfe3cf;
-      box-shadow: 0 0 0 4px rgba(205, 235, 91, 0.4);
+      border-color: var(--pf);
+      box-shadow: 0 0 0 3px rgba(239, 94, 78, 0.16);
     }
-    .field .lead {
-      flex: none;
-      display: flex;
-      color: #9aa093;
-    }
+    .field .lead { flex: none; display: flex; color: #a2a6ac; }
     .field .lead svg { width: 18px; height: 18px; }
     .field input {
       flex: 1;
@@ -102,34 +99,34 @@
       outline: none;
       background: transparent;
       color: var(--ink);
-      font-size: 0.97rem;
+      font-size: 0.96rem;
       padding: 12px 0;
     }
-    .field input::placeholder { color: #a7ac9e; }
+    .field input::placeholder { color: #aab0bb; }
 
     .icon-btn {
       flex: none;
       width: 40px;
       height: 40px;
       border: none;
-      border-radius: 12px;
-      background: var(--lime);
-      color: var(--ink);
+      border-radius: 11px;
+      background: var(--pf);
+      color: #fff;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       transition: background 0.15s ease, transform 0.05s ease;
     }
-    .icon-btn:hover { background: var(--lime-dark); }
+    .icon-btn:hover { background: var(--pf-dark); }
     .icon-btn:active { transform: scale(0.94); }
     .icon-btn svg { width: 18px; height: 18px; }
 
     .tags {
       display: flex;
       flex-wrap: wrap;
-      gap: 9px;
-      margin: 22px 0 26px;
+      gap: 8px;
+      margin: 20px 0 24px;
     }
     .tag {
       display: inline-flex;
@@ -138,15 +135,15 @@
       background: var(--ink);
       color: #fff;
       border-radius: 100px;
-      padding: 9px 14px;
-      font-size: 0.83rem;
+      padding: 8px 13px;
+      font-size: 0.81rem;
       font-weight: 500;
     }
-    .tag svg { width: 15px; height: 15px; flex: none; }
+    .tag svg { width: 14px; height: 14px; flex: none; }
 
     .cta {
       width: 100%;
-      padding: 17px;
+      padding: 16px;
       font-size: 1.02rem;
       font-weight: 600;
       color: #fff;
@@ -161,36 +158,81 @@
     .cta:active:not(:disabled) { transform: translateY(1px); }
     .cta:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 
-    .status {
-      min-height: 20px;
-      margin-top: 16px;
-      font-size: 0.92rem;
-      text-align: center;
+    /* Live workflow log */
+    .activity {
+      margin-top: 18px;
+      background: #f6f6f7;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 13px 15px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+    .log-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      font-size: 0.85rem;
+      line-height: 1.35;
       color: var(--muted);
     }
-    .status.info { color: var(--ink); }
-    .status.ok { color: var(--ok); }
-    .status.err { color: var(--err); }
+    .log-line.active { color: var(--ink); font-weight: 500; }
+    .log-line.err { color: var(--err); }
+    .log-line .ico {
+      flex: none;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+    }
+    .log-line .ico svg { width: 15px; height: 15px; }
+
+    .bar {
+      margin-top: 12px;
+      height: 6px;
+      background: #e6e6ea;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .bar span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--pf);
+      border-radius: 99px;
+      transition: width 0.25s ease;
+    }
 
     .spinner {
       display: inline-block;
-      width: 14px;
-      height: 14px;
-      margin-right: 8px;
-      border: 2px solid rgba(22, 22, 24, 0.25);
-      border-top-color: var(--ink);
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(239, 94, 78, 0.3);
+      border-top-color: var(--pf);
       border-radius: 50%;
-      vertical-align: -2px;
       animation: spin 0.7s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    .status {
+      min-height: 20px;
+      margin-top: 14px;
+      font-size: 0.92rem;
+      text-align: center;
+      color: var(--muted);
+    }
+    .status.ok { color: var(--ok); font-weight: 600; }
+    .status.err { color: var(--err); font-weight: 500; }
+
     .note {
       margin: 18px 0 0;
-      padding-top: 16px;
+      padding-top: 15px;
       border-top: 1px solid var(--line);
-      color: #9aa093;
-      font-size: 0.8rem;
+      color: #9aa0a6;
+      font-size: 0.79rem;
       line-height: 1.5;
       text-align: center;
     }
@@ -198,20 +240,16 @@
 </head>
 <body>
   <main class="card">
-    <div class="badge" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#161618" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
-      </svg>
+    <div class="cobrand">
+      <img class="pf-logo" src="propertyfinder-logo.svg" alt="PropertyFinder" />
+      <span class="x">×</span>
+      <img class="sykon-logo" src="sykon-logo.svg" alt="Sykon Properties" />
     </div>
 
-    <h1>Download listing photos</h1>
-
+    <h1>Listing Photo Downloader</h1>
     <p class="sub">
-      Paste a PropertyFinder link and get every photo in one clean ZIP, ready
-      to edit in Photoshop.
+      Paste a PropertyFinder listing link and download every photo in one clean
+      ZIP, ready to edit in Photoshop.
     </p>
 
     <div class="field">
@@ -232,7 +270,7 @@
       />
       <button id="paste" class="icon-btn" type="button" title="Paste from clipboard"
               aria-label="Paste from clipboard">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#161618" stroke-width="2"
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
           <rect x="8" y="2" width="8" height="4" rx="1" />
           <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
@@ -241,29 +279,18 @@
     </div>
 
     <div class="tags">
-      <span class="tag">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
-             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-        No logos or agents
-      </span>
-      <span class="tag">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
-             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-        Duplicates removed
-      </span>
-      <span class="tag">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
-             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-        High-res ~1200px
-      </span>
-      <span class="tag">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#cdeb5b" stroke-width="3"
-             stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-        Auto-named ZIP
-      </span>
+      <span class="tag"><span class="ck"></span>No logos or agents</span>
+      <span class="tag"><span class="ck"></span>Duplicates removed</span>
+      <span class="tag"><span class="ck"></span>High-res ~1200px</span>
+      <span class="tag"><span class="ck"></span>Auto-named ZIP</span>
     </div>
 
     <button id="go" class="cta">Download Photos</button>
+
+    <div id="activity" class="activity" hidden>
+      <ul id="log" class="log"></ul>
+      <div id="bar" class="bar" hidden><span id="barFill"></span></div>
+    </div>
 
     <div id="status" class="status"></div>
 
@@ -282,20 +309,130 @@
     const goBtn = document.getElementById("go");
     const pasteBtn = document.getElementById("paste");
     const statusEl = document.getElementById("status");
+    const activityEl = document.getElementById("activity");
+    const logEl = document.getElementById("log");
+    const barWrap = document.getElementById("bar");
+    const barFill = document.getElementById("barFill");
 
-    function setStatus(message, type, spinner) {
+    const CHECK =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3"' +
+      ' stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    const CROSS =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="3"' +
+      ' stroke-linecap="round" stroke-linejoin="round">' +
+      '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    const SPIN = '<span class="spinner"></span>';
+
+    // Render the coral check inside the static feature tags.
+    document.querySelectorAll(".tag .ck").forEach(function (el) {
+      el.outerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3"' +
+        ' stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    });
+
+    let activeLine = null;
+
+    function setStatus(message, type) {
       statusEl.className = "status " + (type || "");
-      statusEl.innerHTML =
-        (spinner ? '<span class="spinner"></span>' : "") + message;
+      statusEl.textContent = message;
     }
 
-    function filenameFromHeader(header) {
-      if (!header) return null;
-      let m = header.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
-      if (m && m[1]) return decodeURIComponent(m[1].replace(/["']/g, "").trim());
-      m = header.match(/filename="?([^"]+)"?/i);
-      if (m && m[1]) return m[1].trim();
-      return null;
+    function resetActivity() {
+      logEl.innerHTML = "";
+      activeLine = null;
+      barWrap.hidden = true;
+      barFill.style.width = "0%";
+      activityEl.hidden = false;
+    }
+
+    function completeActive() {
+      if (activeLine) {
+        activeLine.classList.remove("active");
+        activeLine.querySelector(".ico").innerHTML = CHECK;
+      }
+    }
+
+    function addStep(text) {
+      completeActive();
+      const li = document.createElement("li");
+      li.className = "log-line active";
+      li.innerHTML = '<span class="ico">' + SPIN + '</span><span class="txt"></span>';
+      li.querySelector(".txt").textContent = text;
+      logEl.appendChild(li);
+      activeLine = li;
+      activityEl.scrollTop = activityEl.scrollHeight;
+    }
+
+    function onProgress(done, total) {
+      barWrap.hidden = false;
+      barFill.style.width = (total ? Math.round((done / total) * 100) : 0) + "%";
+      if (!activeLine || !activeLine.classList.contains("dl")) {
+        addStep("Downloading photos " + done + "/" + total);
+        activeLine.classList.add("dl");
+      } else {
+        activeLine.querySelector(".txt").textContent =
+          "Downloading photos " + done + "/" + total;
+      }
+    }
+
+    function failActive() {
+      if (activeLine) {
+        activeLine.classList.remove("active");
+        activeLine.classList.add("err");
+        activeLine.querySelector(".ico").innerHTML = CROSS;
+        activeLine = null;
+      }
+    }
+
+    function addErrorLine(message) {
+      const li = document.createElement("li");
+      li.className = "log-line err";
+      li.innerHTML = '<span class="ico">' + CROSS + '</span><span class="txt"></span>';
+      li.querySelector(".txt").textContent = message;
+      logEl.appendChild(li);
+      activityEl.scrollTop = activityEl.scrollHeight;
+    }
+
+    function onError(message) {
+      failActive();
+      addErrorLine(message);
+      setStatus(message, "err");
+    }
+
+    function b64ToBlob(b64, type) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: type || "application/octet-stream" });
+    }
+
+    function onDone(msg) {
+      completeActive();
+      barWrap.hidden = false;
+      barFill.style.width = "100%";
+      try {
+        const blob = b64ToBlob(msg.zip, "application/zip");
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = msg.filename || "propertyfinder-photos.zip";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+
+        const li = document.createElement("li");
+        li.className = "log-line";
+        li.innerHTML = '<span class="ico">' + CHECK + '</span><span class="txt"></span>';
+        li.querySelector(".txt").textContent =
+          "Done - " + msg.count + " photos saved to your downloads";
+        logEl.appendChild(li);
+        activityEl.scrollTop = activityEl.scrollHeight;
+
+        setStatus("Done - " + msg.count + " photos", "ok");
+      } catch (e) {
+        onError("Could not save the ZIP. Please try again.");
+      }
     }
 
     async function pasteFromClipboard() {
@@ -321,7 +458,9 @@
       }
 
       goBtn.disabled = true;
-      setStatus("Working...", "info", true);
+      setStatus("", "");
+      resetActivity();
+      addStep("Contacting backend");
 
       let res;
       try {
@@ -331,7 +470,7 @@
           body: JSON.stringify({ url: url }),
         });
       } catch (e) {
-        setStatus("Render backend is waking up. Try again in a moment.", "err");
+        onError("Render backend is waking up. Try again in a moment.");
         goBtn.disabled = false;
         return;
       }
@@ -346,30 +485,40 @@
             message = "Render backend is waking up. Try again in a moment.";
           }
         }
-        setStatus(message, "err");
+        onError(message);
         goBtn.disabled = false;
         return;
       }
 
+      let finished = false;
       try {
-        const blob = await res.blob();
-        const count = res.headers.get("X-Photo-Count") || "";
-        const filename =
-          filenameFromHeader(res.headers.get("Content-Disposition")) ||
-          "propertyfinder-photos.zip";
-
-        const objectUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(objectUrl);
-
-        setStatus("Done - " + (count || "?") + " photos", "ok");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          let idx;
+          while ((idx = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            if (!line) continue;
+            let msg;
+            try {
+              msg = JSON.parse(line);
+            } catch (e) {
+              continue;
+            }
+            if (msg.type === "log") addStep(msg.message);
+            else if (msg.type === "progress") onProgress(msg.done, msg.total);
+            else if (msg.type === "error") { onError(msg.message); finished = true; }
+            else if (msg.type === "done") { onDone(msg); finished = true; }
+          }
+        }
+        if (!finished) onError("Connection ended early. Please try again.");
       } catch (e) {
-        setStatus("Could not save the ZIP. Please try again.", "err");
+        onError("Connection lost while scraping. Please try again.");
       } finally {
         goBtn.disabled = false;
       }

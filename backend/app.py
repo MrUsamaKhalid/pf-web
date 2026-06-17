@@ -4,34 +4,37 @@ PropertyFinder Photo ZIP Downloader - backend
 Flask service that scrapes the photos from a PropertyFinder listing with a
 headless Chromium browser (Playwright) and returns them bundled as a ZIP.
 
-Endpoints
----------
-GET  /            -> health check (JSON)
-POST /scrape      -> { "url": "https://www.propertyfinder..." } -> ZIP download
+POST /scrape streams progress as newline-delimited JSON (NDJSON) so the
+frontend can show a live log of the workflow. The final line carries the ZIP
+(base64) plus the photo count and filename.
+
+Stream message shapes
+----------------------
+{"type": "log",      "message": "..."}                       progress step
+{"type": "progress", "done": 3, "total": 18, "message": ...} download progress
+{"type": "error",    "message": "..."}                       fatal, stream ends
+{"type": "done",     "count": 18, "filename": "...zip",
+                     "zip": "<base64>"}                       success, stream ends
 """
 
 import io
 import os
 import re
 import json
+import base64
 import zipfile
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import requests
 
 app = Flask(__name__)
 
-# Allow the GitHub Pages frontend (any origin) to call us, and let the browser
-# read the two custom headers we return so it can show the filename + count.
-CORS(
-    app,
-    resources={r"/*": {"origins": "*"}},
-    expose_headers=["Content-Disposition", "X-Photo-Count"],
-)
+# Allow the GitHub Pages frontend (any origin) to call us.
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --------------------------------------------------------------------------- #
 # Configuration
@@ -100,7 +103,6 @@ def looks_like_image_url(s):
     if IMG_EXT_RE.search(s):
         return True
     low = s.lower()
-    # Next.js image optimiser wrapper: /_next/image?url=<encoded>&w=...
     if "/_next/image" in low and "url=" in low:
         return True
     return False
@@ -146,7 +148,6 @@ def upscale_url(url, target=TARGET_WIDTH):
         return url
     changed = False
 
-    # --- query parameters (?width= / &w=) ---
     if p.query:
         qs = parse_qs(p.query, keep_blank_values=True)
         for key in list(qs.keys()):
@@ -161,7 +162,6 @@ def upscale_url(url, target=TARGET_WIDTH):
         if changed:
             p = p._replace(query=urlencode(qs, doseq=True))
 
-    # --- path based markers ---
     path = p.path
 
     def _bump_wxh(m):
@@ -201,10 +201,7 @@ def upscale_url(url, target=TARGET_WIDTH):
 
 
 def canonical_key(url):
-    """
-    A key that is identical for size variants of the same image, used to group
-    duplicates before downloading.
-    """
+    """A key identical for size variants of the same image (for grouping)."""
     inner = _unwrap_next_image(url)
     if inner:
         url = normalize_protocol(inner)
@@ -220,18 +217,15 @@ def canonical_key(url):
         query = urlencode(qs, doseq=True)
 
     path = p.path
-    path = re.sub(r"([_/])\d{2,4}x\d{2,4}", r"\1<s>", path)        # 800x600
-    path = re.sub(r"(?<![A-Za-z])([wh])_\d{2,4}", r"\1_<s>", path)  # w_800
-    path = re.sub(r"/\d{3,4}(?=/)", "/<s>", path)                  # /800/
+    path = re.sub(r"([_/])\d{2,4}x\d{2,4}", r"\1<s>", path)
+    path = re.sub(r"(?<![A-Za-z])([wh])_\d{2,4}", r"\1_<s>", path)
+    path = re.sub(r"/\d{3,4}(?=/)", "/<s>", path)
 
     return f"{p.netloc.lower()}{path.lower()}?{query.lower()}"
 
 
 def candidates_for(url):
-    """
-    Ordered (tier, url) download candidates for one source URL.
-    Lower tier = tried first (more likely to be the largest version).
-    """
+    """Ordered (tier, url) download candidates for one source URL."""
     url = normalize_protocol(url)
     inner = _unwrap_next_image(url)
     base = normalize_protocol(inner) if inner else url
@@ -244,18 +238,15 @@ def candidates_for(url):
         up_opt = upscale_url(url)
         if up_opt != url:
             tiers.append((1, up_opt))
-        tiers.append((1, base))      # inner original
+        tiers.append((1, base))
     tiers.append((2, base))
     if url != base:
-        tiers.append((3, url))       # optimiser-wrapped original, last resort
+        tiers.append((3, url))
     return tiers
 
 
 def build_download_plan(urls):
-    """
-    Group size variants together and return, for each unique photo, an ordered
-    list of candidate URLs to try.
-    """
+    """Group size variants and return ordered candidate lists per photo."""
     groups = {}
     order = []
     for u in urls:
@@ -278,12 +269,7 @@ def build_download_plan(urls):
 
 
 def slug_from_url(url):
-    """
-    Build a filename slug from the listing URL path.
-
-    /for-sale/apartment/dubai-downtown-dubai-2-bedroom-123456.html
-        -> dubai-downtown-dubai-2-bedroom
-    """
+    """Build a filename slug from the listing URL path."""
     try:
         path = urlparse(url).path
     except ValueError:
@@ -294,12 +280,12 @@ def slug_from_url(url):
         return "propertyfinder-photos"
 
     last = segments[-1]
-    last = re.sub(r"\.\w+$", "", last)        # drop .html / .php extension
+    last = re.sub(r"\.\w+$", "", last)
     last = last.lower()
-    last = re.sub(r"[\s_]+", "-", last)        # spaces / underscores -> hyphen
-    last = re.sub(r"[^a-z0-9\-]", "", last)    # drop anything unusual
-    last = re.sub(r"-\d+$", "", last)          # strip trailing listing id
-    last = re.sub(r"-{2,}", "-", last)         # collapse repeated hyphens
+    last = re.sub(r"[\s_]+", "-", last)
+    last = re.sub(r"[^a-z0-9\-]", "", last)
+    last = re.sub(r"-\d+$", "", last)
+    last = re.sub(r"-{2,}", "-", last)
     last = last.strip("-")
 
     return last or "propertyfinder-photos"
@@ -394,14 +380,20 @@ async () => {
 """
 
 
-def scrape_listing(url):
-    """Return a set of raw image URLs found on the listing page."""
+def scrape_listing_stream(url):
+    """
+    Generator that drives the browser and yields progress as tuples:
+        ("log", message)     human-readable step
+        ("result", url_set)  final set of raw image URLs (last item)
+    """
     # Imported here so the module still imports cleanly if the browser binary
-    # is not yet installed; the import is required only when actually scraping.
+    # is not yet installed; required only when actually scraping.
     from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
     image_urls = set()
     next_data_text = None
+
+    yield ("log", "Launching headless browser")
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -419,14 +411,15 @@ def scrape_listing(url):
                 viewport={"width": 1366, "height": 900},
             )
             page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
 
+            yield ("log", "Opening the listing page")
+            page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
             try:
                 page.wait_for_load_state("networkidle", timeout=15_000)
             except PWTimeout:
                 pass
 
-            # Trigger lazy-loaded gallery images.
+            yield ("log", "Scrolling to load all gallery photos")
             try:
                 page.evaluate(AUTO_SCROLL_JS)
             except Exception:
@@ -438,7 +431,7 @@ def scrape_listing(url):
                 pass
             page.wait_for_timeout(500)
 
-            # Method A: __NEXT_DATA__
+            yield ("log", "Reading embedded gallery data")
             try:
                 next_data_text = page.eval_on_selector(
                     "#__NEXT_DATA__", "el => el.textContent"
@@ -458,7 +451,6 @@ def scrape_listing(url):
                 except Exception:
                     next_data_text = None
 
-            # Method B: DOM images
             try:
                 for u in page.evaluate(DOM_COLLECT_JS):
                     if u:
@@ -474,7 +466,8 @@ def scrape_listing(url):
         except (ValueError, TypeError):
             pass
 
-    return image_urls
+    yield ("log", f"Found {len(image_urls)} image links on the page")
+    yield ("result", image_urls)
 
 
 # --------------------------------------------------------------------------- #
@@ -508,25 +501,6 @@ def download_group(candidates):
             if "image" in ctype.lower() or _ext_for(r.content, ctype):
                 return r.content, ctype
     return None
-
-
-def collect_photos(plans):
-    """Download every plan in parallel, then de-duplicate by content hash."""
-    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
-        results = list(pool.map(download_group, plans))
-
-    photos = []
-    seen_hashes = set()
-    for result in results:
-        if not result:
-            continue
-        content, ctype = result
-        digest = hashlib.sha256(content).hexdigest()
-        if digest in seen_hashes:
-            continue
-        seen_hashes.add(digest)
-        photos.append((content, ctype))
-    return photos
 
 
 def build_zip(photos):
@@ -563,36 +537,100 @@ def scrape():
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
-    try:
-        raw_urls = scrape_listing(url)
-    except Exception:
-        return (
-            jsonify({"error": "Could not load the listing page. Please try again."}),
-            502,
-        )
+    def nd(obj):
+        return json.dumps(obj) + "\n"
 
-    filtered = [
-        u for u in (normalize_protocol(x) for x in raw_urls) if is_listing_photo(u)
-    ]
-    plans = build_download_plan(filtered)
-    if not plans:
-        return jsonify({"error": "No photos found on this listing."}), 404
+    def generate():
+        try:
+            image_urls = set()
+            try:
+                for kind, payload in scrape_listing_stream(url):
+                    if kind == "log":
+                        yield nd({"type": "log", "message": payload})
+                    elif kind == "result":
+                        image_urls = payload
+            except Exception:
+                yield nd({
+                    "type": "error",
+                    "message": "Could not load the listing page. It may be slow "
+                               "or blocking automated access - try again.",
+                })
+                return
 
-    photos = collect_photos(plans)
-    if not photos:
-        return jsonify({"error": "No photos found on this listing."}), 404
+            yield nd({"type": "log",
+                      "message": "Filtering out logos, icons and non-photos"})
+            filtered = [
+                u for u in (normalize_protocol(x) for x in image_urls)
+                if is_listing_photo(u)
+            ]
+            plans = build_download_plan(filtered)
+            if not plans:
+                yield nd({"type": "error",
+                          "message": "No photos found on this listing."})
+                return
 
-    zip_buffer = build_zip(photos)
-    filename = f"{slug_from_url(url)}.zip"
+            total = len(plans)
+            yield nd({"type": "log",
+                      "message": f"Preparing to download {total} photos"})
 
-    response = send_file(
-        zip_buffer,
-        mimetype="application/zip",
-        as_attachment=True,
-        download_name=filename,
+            results = [None] * total
+            done = 0
+            with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+                fut_to_index = {
+                    pool.submit(download_group, plan): i
+                    for i, plan in enumerate(plans)
+                }
+                yield nd({"type": "progress", "done": 0, "total": total,
+                          "message": f"Downloading photos 0/{total}"})
+                for fut in as_completed(fut_to_index):
+                    i = fut_to_index[fut]
+                    try:
+                        results[i] = fut.result()
+                    except Exception:
+                        results[i] = None
+                    done += 1
+                    yield nd({"type": "progress", "done": done, "total": total,
+                              "message": f"Downloading photos {done}/{total}"})
+
+            photos = []
+            seen = set()
+            for result in results:
+                if not result:
+                    continue
+                content, ctype = result
+                digest = hashlib.sha256(content).hexdigest()
+                if digest in seen:
+                    continue
+                seen.add(digest)
+                photos.append((content, ctype))
+
+            if not photos:
+                yield nd({"type": "error",
+                          "message": "No photos could be downloaded from this listing."})
+                return
+
+            yield nd({"type": "log",
+                      "message": f"{len(photos)} unique photos kept (duplicates removed)"})
+            yield nd({"type": "log", "message": "Packaging ZIP"})
+
+            zip_buffer = build_zip(photos)
+            filename = f"{slug_from_url(url)}.zip"
+            encoded = base64.b64encode(zip_buffer.getvalue()).decode("ascii")
+            yield nd({
+                "type": "done",
+                "count": len(photos),
+                "filename": filename,
+                "zip": encoded,
+            })
+        except Exception:
+            yield nd({"type": "error",
+                      "message": "Something went wrong while building the ZIP."})
+
+    return Response(
+        generate(),
+        mimetype="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    response.headers["X-Photo-Count"] = str(len(photos))
-    return response
 
 
 @app.errorhandler(404)
@@ -612,4 +650,4 @@ def server_error(_):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
