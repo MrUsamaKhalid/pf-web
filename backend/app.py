@@ -427,10 +427,12 @@ def scrape():
     url = (data_in.get("url") or "").strip()
     if not url:
         return jsonify({"error": "Missing 'url' in request body."}), 400
-    if "propertyfinder" not in url.lower():
-        return jsonify({"error": "URL must be a PropertyFinder listing."}), 400
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
+    from urllib.parse import urlparse as _urlparse
+    host = (_urlparse(url).hostname or "").lower()
+    if not re.search(r"(^|\.)propertyfinder\.[a-z.]{2,}$", host):
+        return jsonify({"error": "URL must be a PropertyFinder listing."}), 400
 
     def nd(obj):
         return json.dumps(obj) + "\n"
