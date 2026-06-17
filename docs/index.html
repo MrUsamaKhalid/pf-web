@@ -328,6 +328,18 @@
     .hist-btn { display: inline-block; border: 0; background: var(--pf-soft); color: var(--pf-dark); cursor: pointer; font-family: var(--font-body); font-size: 0.78rem; font-weight: 600; padding: 7px 12px; border-radius: 9px; text-decoration: none; transition: background var(--dur-fast) var(--ease-standard); }
     .hist-btn:hover { background: rgba(239,94,78,0.2); }
     .hist-empty { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 22px 0; }
+    .hist-item.ok { border-color: rgba(31,157,87,0.45); }
+    .hist-item.err { border-color: rgba(192,57,43,0.45); }
+
+    .batch-area {
+      width: 100%; min-height: 120px; resize: vertical;
+      background: var(--field); border: 1.5px solid transparent; border-radius: 14px;
+      padding: 13px 15px; font-family: var(--font-body); font-size: 0.9rem; color: var(--ink);
+      line-height: 1.5; outline: 0;
+      transition: border-color var(--dur-base) var(--ease-standard), box-shadow var(--dur-base) var(--ease-standard), background var(--dur-base) var(--ease-standard);
+    }
+    .batch-area:focus { background: #fff; border-color: var(--pf); box-shadow: 0 0 0 4px var(--pf-soft); }
+    .batch-area::placeholder { color: #aeb4bd; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
@@ -357,6 +369,7 @@
     <span class="tb-brand">PropertyFinder <b>×</b> Sykon</span>
     <nav class="tb-right">
       <button class="tb-link" id="navDownload" type="button">Download</button>
+      <button class="tb-link" id="navBatch" type="button">Batch</button>
       <button class="tb-link" id="navHistory" type="button">History</button>
       <span class="tb-email" id="tbEmail"></span>
       <button class="tb-link" id="signout" type="button">Sign out</button>
@@ -390,6 +403,17 @@
     </div>
     <ul class="hist-list" id="histList"></ul>
     <div class="hist-empty" id="histEmpty" hidden>No downloads yet.</div>
+  </main>
+
+  <!-- BATCH VIEW -->
+  <main class="card" id="batchView" style="position:relative;z-index:1;max-width:520px;" hidden>
+    <h1>Batch download</h1>
+    <p class="sub">Paste multiple PropertyFinder links — one per line. They run one at a time and each ZIP downloads automatically. Keep this tab open until it finishes.</p>
+    <textarea id="batchUrls" class="batch-area" aria-label="PropertyFinder listing URLs, one per line"
+      placeholder="https://www.propertyfinder.ae/en/plp/...&#10;https://www.propertyfinder.ae/en/plp/..."></textarea>
+    <button id="batchGo" class="btn-primary" type="button" style="margin-top: 14px;">Download all</button>
+    <ul class="hist-list" id="batchList" style="margin-top: 16px;"></ul>
+    <div id="batchSummary" class="status"></div>
   </main>
 
   <div class="stage" id="appView" hidden>
@@ -732,6 +756,56 @@
       return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
         .replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 80);
     }
+    // shared, UI-agnostic scrape core used by single-download AND batch
+    async function streamScrape(url, cb) {
+      let res;
+      try {
+        res = await fetch(BACKEND_URL + "/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url }),
+        });
+      } catch (e) {
+        cb.error("Render backend is waking up. Try again in a moment."); return;
+      }
+      if (!res.ok) {
+        let message = "Something went wrong. Please try again.";
+        try { const d = await res.json(); if (d && d.error) message = d.error; }
+        catch (e) { if (res.status === 502 || res.status === 503) message = "Render backend is waking up. Try again in a moment."; }
+        cb.error(message); return;
+      }
+      if (!res.body) { cb.error("Your browser can't stream this response. Please update it."); return; }
+      let finished = false;
+      function handle(msg) {
+        if (msg.type === "log") { if (cb.log) cb.log(msg.message); }
+        else if (msg.type === "progress") { if (cb.progress) cb.progress(msg.done, msg.total); }
+        else if (msg.type === "error") { finished = true; cb.error(msg.message); }
+        else if (msg.type === "done") { finished = true; cb.done(msg); }
+      }
+      try {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          let idx;
+          while ((idx = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            if (line) { let m = null; try { m = JSON.parse(line); } catch (e) {} if (m) handle(m); }
+          }
+          if (finished) { try { await reader.cancel(); } catch (e) {} break; }
+        }
+        const tail = (buffer + decoder.decode()).trim();
+        if (!finished && tail) { let m = null; try { m = JSON.parse(tail); } catch (e) {} if (m) handle(m); }
+        if (!finished) cb.error("Connection ended early. Please try again.");
+      } catch (e) {
+        cb.error("Connection lost while scraping. Please try again.");
+      }
+    }
+
     async function downloadPhotos() {
       if (inFlight) return;
       const url = urlInput.value.trim();
@@ -755,76 +829,15 @@
             "Waking up the server (first run can take up to a minute)…";
       }, 6000);
 
-      let res;
-      try {
-        res = await fetch(BACKEND_URL + "/scrape", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: url }),
-        });
-      } catch (e) {
-        clearTimeout(wakeTimer);
-        onError("Render backend is waking up. Try again in a moment.");
-        goBtn.disabled = false; inFlight = false; return;
-      }
+      await streamScrape(url, {
+        log: function (m) { clearTimeout(wakeTimer); addStep(m); },
+        progress: function (d, t) { clearTimeout(wakeTimer); onProgress(d, t); },
+        error: function (m) { clearTimeout(wakeTimer); onError(m); },
+        done: function (msg) { clearTimeout(wakeTimer); onDone(msg); },
+      });
       clearTimeout(wakeTimer);
-
-      if (!res.ok) {
-        let message = "Something went wrong. Please try again.";
-        try {
-          const data = await res.json();
-          if (data && data.error) message = data.error;
-        } catch (e) {
-          if (res.status === 502 || res.status === 503) message = "Render backend is waking up. Try again in a moment.";
-        }
-        onError(message); goBtn.disabled = false; inFlight = false; return;
-      }
-
-      if (!res.body) {
-        onError("Your browser can't stream this response. Please update it.");
-        goBtn.disabled = false; inFlight = false; return;
-      }
-
-      let finished = false;
-      function handleMessage(msg) {
-        if (msg.type === "log") addStep(msg.message);
-        else if (msg.type === "progress") onProgress(msg.done, msg.total);
-        else if (msg.type === "error") { onError(msg.message); finished = true; }
-        else if (msg.type === "done") { onDone(msg); finished = true; }
-      }
-      try {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) break;
-          buffer += decoder.decode(chunk.value, { stream: true });
-          let idx;
-          while ((idx = buffer.indexOf("\n")) >= 0) {
-            const line = buffer.slice(0, idx).trim();
-            buffer = buffer.slice(idx + 1);
-            if (line) {
-              let msg = null;
-              try { msg = JSON.parse(line); } catch (e) {}
-              if (msg) handleMessage(msg);
-            }
-          }
-          if (finished) { try { await reader.cancel(); } catch (e) {} break; }
-        }
-        const tail = (buffer + decoder.decode()).trim();
-        if (!finished && tail) {
-          let msg = null;
-          try { msg = JSON.parse(tail); } catch (e) {}
-          if (msg) handleMessage(msg);
-        }
-        if (!finished) onError("Connection ended early. Please try again.");
-      } catch (e) {
-        onError("Connection lost while scraping. Please try again.");
-      } finally {
-        goBtn.disabled = false;
-        inFlight = false;
-      }
+      goBtn.disabled = false;
+      inFlight = false;
     }
 
     goBtn.addEventListener("click", downloadPhotos);
@@ -876,6 +889,11 @@
     const authView = document.getElementById("authView");
     const appView = document.getElementById("appView");
     const historyView = document.getElementById("historyView");
+    const batchView = document.getElementById("batchView");
+    const batchUrls = document.getElementById("batchUrls");
+    const batchGo = document.getElementById("batchGo");
+    const batchList = document.getElementById("batchList");
+    const batchSummary = document.getElementById("batchSummary");
     const tbEmail = document.getElementById("tbEmail");
     const authEmail = document.getElementById("authEmail");
     const authPassword = document.getElementById("authPassword");
@@ -925,7 +943,9 @@
       authView.hidden = name !== "auth";
       appView.hidden = name !== "app";
       historyView.hidden = name !== "history";
+      batchView.hidden = name !== "batch";
       document.getElementById("navDownload").classList.toggle("active", name === "app");
+      document.getElementById("navBatch").classList.toggle("active", name === "batch");
       document.getElementById("navHistory").classList.toggle("active", name === "history");
     }
 
@@ -949,19 +969,23 @@
       authStatusEl.textContent = msg;
     }
 
-    async function recordHistory(msg) {
-      if (!sb || !lastUrl) return;
+    async function insertHistory(url, name, msg) {
+      if (!sb || !url) return null;
       try {
-        const title = sanitizeName(lastName) || msg.title || null;
         const { data, error } = await sb.from("downloads").insert({
-          listing_url: lastUrl,
-          title: title,
+          listing_url: url,
+          title: name || msg.title || null,
           property_count: msg.property || 0,
           community_count: msg.community || 0,
           total_count: msg.count || 0,
         }).select("id").single();
-        if (!error && data) { lastRowId = data.id; showSaveAffordance(); }
-      } catch (e) { /* history is best-effort */ }
+        if (!error && data) return data.id;
+      } catch (e) { /* best-effort */ }
+      return null;
+    }
+    async function recordHistory(msg) {
+      const id = await insertHistory(lastUrl, sanitizeName(lastName), msg);
+      if (id) { lastRowId = id; showSaveAffordance(); }
     }
 
     async function loadHistory() {
@@ -1028,9 +1052,72 @@
 
     // nav + auth controls
     document.getElementById("navDownload").addEventListener("click", function () { showView("app"); });
+    document.getElementById("navBatch").addEventListener("click", function () { showView("batch"); });
     document.getElementById("navHistory").addEventListener("click", function () { showView("history"); loadHistory(); });
     document.getElementById("histRefresh").addEventListener("click", loadHistory);
     document.getElementById("signout").addEventListener("click", async function () { if (sb) await sb.auth.signOut(); });
+
+    /* ---- batch: sequential (concurrency = 1) so the free worker never OOMs ---- */
+    let batchRunning = false;
+    async function runBatch() {
+      if (batchRunning) return;
+      const raw = batchUrls.value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+      const seen = {}; const urls = [];
+      raw.forEach(function (u) { if (!seen[u]) { seen[u] = 1; urls.push(u); } });
+      if (!urls.length) {
+        batchSummary.className = "status err";
+        batchSummary.textContent = "Paste at least one PropertyFinder link.";
+        return;
+      }
+      batchRunning = true; batchGo.disabled = true; batchList.innerHTML = "";
+      let ok = 0, fail = 0;
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        const li = document.createElement("li"); li.className = "hist-item";
+        const t = document.createElement("p"); t.className = "hist-title"; t.textContent = url;
+        const m = document.createElement("p"); m.className = "hist-meta"; m.textContent = "Queued…";
+        li.appendChild(t); li.appendChild(m); batchList.appendChild(li);
+        batchSummary.className = "status";
+        batchSummary.textContent = "Processing " + (i + 1) + " of " + urls.length + "…";
+
+        if (url.toLowerCase().indexOf("propertyfinder") === -1) {
+          m.textContent = "Skipped — not a PropertyFinder link"; li.classList.add("err"); fail++; continue;
+        }
+        m.textContent = "Starting…";
+        const result = await new Promise(function (resolve) {
+          streamScrape(url, {
+            log: function (msg) { m.textContent = msg; if (msg.indexOf("Listing: ") === 0) t.textContent = msg.slice(9); },
+            progress: function (d, total) { m.textContent = "Downloading " + d + "/" + total; },
+            error: function (msg) { resolve({ error: msg }); },
+            done: function (msg) { resolve({ done: msg }); },
+          });
+        });
+
+        if (result && result.done) {
+          const msg = result.done;
+          try {
+            const blob = b64ToBlob(msg.zip, "application/zip");
+            const base = sanitizeName(msg.title) || (msg.filename ? msg.filename.replace(/\.zip$/, "") : "propertyfinder-photos");
+            const ou = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = ou; a.download = base + ".zip";
+            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(ou);
+          } catch (e) {}
+          await insertHistory(url, sanitizeName(msg.title), msg);
+          t.textContent = msg.title || url;
+          m.textContent = "✓ " + (msg.property || 0) + " property · " + (msg.community || 0) +
+            " community (" + (msg.count || 0) + ")";
+          li.classList.add("ok"); ok++;
+        } else {
+          m.textContent = "✗ " + ((result && result.error) || "Failed");
+          li.classList.add("err"); fail++;
+        }
+      }
+      batchRunning = false; batchGo.disabled = false;
+      batchSummary.className = "status ok";
+      batchSummary.textContent = "Done — " + ok + " of " + urls.length + " downloaded" +
+        (fail ? (" · " + fail + " failed/skipped") : "");
+    }
+    if (batchGo) batchGo.addEventListener("click", runBatch);
 
     authSwitch.addEventListener("click", function () {
       authMode = authMode === "signin" ? "signup" : "signin";
