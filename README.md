@@ -2,7 +2,7 @@
 
 Paste a PropertyFinder listing URL, get a ZIP of all its photos.
 
-- **frontend/** — static page (deploy on GitHub Pages)
+- **docs/** — static page (served by GitHub Pages from the `/docs` folder)
 - **backend/** — Flask + Playwright scraper (deploy on Render)
 
 ## How it works
@@ -36,7 +36,7 @@ curl -X POST http://127.0.0.1:5000/scrape ^
   --output test.zip
 ```
 
-Frontend: open `frontend/index.html`, set `BACKEND_URL` to
+Frontend: open `docs/index.html`, set `BACKEND_URL` to
 `http://127.0.0.1:5000`, paste a listing URL, click Download.
 
 ---
@@ -63,7 +63,7 @@ git push -u origin main
 
 ### 3. Point the frontend at the backend
 
-In `frontend/index.html` replace:
+In `docs/index.html` replace:
 
 ```js
 const BACKEND_URL = "PASTE_RENDER_BACKEND_URL_HERE";
@@ -72,13 +72,13 @@ const BACKEND_URL = "PASTE_RENDER_BACKEND_URL_HERE";
 with your Render URL, then:
 
 ```bash
-git add frontend/index.html
+git add docs/index.html
 git commit -m "Add Render backend URL"
 git push
 ```
 
 ### 4. GitHub Pages
 
-Repo → Settings → Pages → Deploy from branch → `main` → `/frontend` → Save.
+Repo → Settings → Pages → Deploy from branch → `main` → `/docs` → Save.
 
 Live at `https://YOUR_USERNAME.github.io/pf-web/`.
