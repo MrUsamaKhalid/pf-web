@@ -1,0 +1,32 @@
+# Render web service for the PropertyFinder photo downloader backend.
+#
+# This uses the Docker option (Playwright's official Python image) because it
+# bundles Chromium and every system library it needs - the most reliable way to
+# run Playwright on Render. Render builds from the backend/ folder.
+services:
+  - type: web
+    name: pf-web-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: "10000"
+
+# ---------------------------------------------------------------------------
+# Native (non-Docker) alternative - use this block instead of the one above if
+# you prefer not to use Docker. Note: Playwright's system libraries are not
+# always present on Render's native runtime, so Docker is recommended.
+#
+# services:
+#   - type: web
+#     name: pf-web-backend
+#     runtime: python
+#     rootDir: backend
+#     plan: free
+#     buildCommand: pip install -r requirements.txt && playwright install chromium && playwright install-deps
+#     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 2
+# ---------------------------------------------------------------------------
