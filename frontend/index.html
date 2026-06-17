@@ -6,15 +6,16 @@
   <title>PropertyFinder Photo Downloader</title>
   <style>
     :root {
-      --bg: #111;
-      --card: #1a1a1a;
-      --accent: #d4af37;
-      --accent-dim: #b7952c;
-      --text: #f2f2f2;
-      --muted: #9a9a9a;
-      --border: #2b2b2b;
-      --err: #ff6b6b;
-      --ok: #6bd28a;
+      --card: #ffffff;
+      --ink: #18181b;
+      --muted: #6b7280;
+      --line: #ececf1;
+      --field-line: #e5e7eb;
+      --green: #22c55e;
+      --green-dark: #16a34a;
+      --violet: #7c3aed;
+      --err: #dc2626;
+      --ok: #16a34a;
     }
 
     * { box-sizing: border-box; }
@@ -22,115 +23,192 @@
     html, body {
       margin: 0;
       padding: 0;
-      background: var(--bg);
-      color: var(--text);
+      min-height: 100vh;
+      color: var(--ink);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
         Helvetica, Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
+      background-color: #edeef1;
+      background-image: radial-gradient(rgba(20, 20, 40, 0.07) 1px, transparent 1px);
+      background-size: 22px 22px;
     }
 
     body {
-      min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 20px;
+      padding: 24px;
     }
 
     .card {
+      position: relative;
+      overflow: hidden;
       width: 100%;
-      max-width: 480px;
+      max-width: 440px;
       background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 28px 24px 24px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 30px 28px;
+      box-shadow: 0 30px 60px -24px rgba(40, 40, 90, 0.28);
     }
 
-    .brand {
+    /* Soft gradient glow bleeding from the top-right corner */
+    .card::before {
+      content: "";
+      position: absolute;
+      top: -95px;
+      right: -70px;
+      width: 470px;
+      height: 320px;
+      border-radius: 50%;
+      background: linear-gradient(
+        115deg,
+        #9be7ff 0%,
+        #a5c8ff 38%,
+        #a9a8ff 64%,
+        #d6b8fb 100%
+      );
+      filter: blur(48px);
+      opacity: 0.6;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .content { position: relative; z-index: 1; }
+
+    .badge {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 18px;
+      justify-content: center;
+      background: linear-gradient(145deg, #34d36b, #16a34a);
+      box-shadow: 0 8px 18px -4px rgba(22, 163, 74, 0.5),
+        0 0 0 6px rgba(34, 197, 94, 0.12);
+      margin-bottom: 22px;
     }
+    .badge svg { width: 28px; height: 28px; }
 
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px var(--accent);
+    .title-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
     }
 
     h1 {
-      font-size: 1.35rem;
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.2px;
       margin: 0;
-      letter-spacing: 0.2px;
+    }
+
+    .pill {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #3f3f46;
+      background: #f3f4f6;
+      border: 1px solid #e7e7ee;
+      border-radius: 999px;
+      padding: 4px 11px;
+      line-height: 1;
     }
 
     .sub {
       color: var(--muted);
-      font-size: 0.92rem;
-      line-height: 1.5;
-      margin: 0 0 22px;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      margin: 0 0 24px;
     }
 
-    label {
-      display: block;
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: #fff;
+      border: 1px solid var(--field-line);
+      border-radius: 12px;
+      padding: 4px 6px 4px 16px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-
-    input[type="url"] {
-      width: 100%;
-      padding: 14px 14px;
-      font-size: 1rem;
-      color: var(--text);
-      background: #0d0d0d;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      outline: none;
-      transition: border-color 0.15s ease;
+    .field:focus-within {
+      border-color: #a855f7;
+      box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.13);
     }
-
-    input[type="url"]::placeholder { color: #6a6a6a; }
-
-    input[type="url"]:focus { border-color: var(--accent); }
-
-    button {
-      width: 100%;
-      margin-top: 14px;
-      padding: 15px 16px;
-      font-size: 1.02rem;
-      font-weight: 600;
-      color: #1a1400;
-      background: var(--accent);
+    .field input {
+      flex: 1;
+      min-width: 0;
       border: none;
-      border-radius: 10px;
+      outline: none;
+      background: transparent;
+      color: var(--ink);
+      font-size: 0.98rem;
+      padding: 13px 0;
+    }
+    .field input::placeholder { color: #aab0bb; }
+
+    .icon-btn {
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border: none;
+      background: transparent;
+      color: #9aa0a6;
+      border-radius: 9px;
       cursor: pointer;
-      transition: background 0.15s ease, transform 0.05s ease;
+      transition: background 0.15s ease, color 0.15s ease;
     }
+    .icon-btn:hover { background: #f3f4f6; color: #4b5563; }
+    .icon-btn svg { width: 19px; height: 19px; }
 
-    button:hover:not(:disabled) { background: var(--accent-dim); }
-    button:active:not(:disabled) { transform: translateY(1px); }
-
-    button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
+    .checks {
+      list-style: none;
+      margin: 20px 0 24px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
+    .checks li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.92rem;
+      color: #374151;
+    }
+    .checks svg { width: 20px; height: 20px; flex: none; }
+
+    .cta {
+      position: relative;
+      width: 100%;
+      padding: 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      background: linear-gradient(95deg, #6d5ef0 0%, #a855f7 50%, #ec4899 100%);
+      box-shadow: 0 14px 30px -10px rgba(168, 85, 247, 0.65);
+      transition: transform 0.05s ease, filter 0.15s ease, box-shadow 0.15s ease;
+    }
+    .cta:hover:not(:disabled) { filter: brightness(1.05); }
+    .cta:active:not(:disabled) { transform: translateY(1px); }
+    .cta:disabled { opacity: 0.65; cursor: not-allowed; box-shadow: none; }
 
     .status {
-      min-height: 22px;
-      margin-top: 18px;
-      font-size: 0.95rem;
+      min-height: 20px;
+      margin-top: 16px;
+      font-size: 0.92rem;
       text-align: center;
-      transition: color 0.15s ease;
+      color: var(--muted);
     }
-
-    .status.info { color: var(--accent); }
+    .status.info { color: var(--violet); }
     .status.ok { color: var(--ok); }
     .status.err { color: var(--err); }
 
@@ -139,21 +217,20 @@
       width: 14px;
       height: 14px;
       margin-right: 8px;
-      border: 2px solid rgba(212, 175, 55, 0.35);
-      border-top-color: var(--accent);
+      border: 2px solid rgba(124, 58, 237, 0.25);
+      border-top-color: var(--violet);
       border-radius: 50%;
       vertical-align: -2px;
       animation: spin 0.7s linear infinite;
     }
-
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .note {
-      margin: 22px 0 0;
+      margin: 18px 0 0;
       padding-top: 16px;
-      border-top: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 0.82rem;
+      border-top: 1px solid var(--line);
+      color: #9aa0a6;
+      font-size: 0.8rem;
       line-height: 1.5;
       text-align: center;
     }
@@ -161,45 +238,84 @@
 </head>
 <body>
   <main class="card">
-    <div class="brand">
-      <span class="dot"></span>
-      <h1>PropertyFinder Photo Downloader</h1>
+    <div class="content">
+      <div class="badge" aria-hidden="true">
+        <!-- download icon -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      </div>
+
+      <div class="title-row">
+        <h1>PropertyFinder Photos</h1>
+        <span class="pill">ZIP</span>
+      </div>
+
+      <p class="sub">
+        Paste a PropertyFinder listing link and download every photo as a single
+        ZIP &mdash; ready to edit in Photoshop. 📸
+      </p>
+
+      <div class="field">
+        <input
+          id="url"
+          type="url"
+          inputmode="url"
+          autocomplete="off"
+          aria-label="PropertyFinder listing URL"
+          placeholder="https://www.propertyfinder.ae/en/plp/..."
+        />
+        <button id="paste" class="icon-btn" type="button" title="Paste from clipboard"
+                aria-label="Paste from clipboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <rect x="8" y="2" width="8" height="4" rx="1" />
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          </svg>
+        </button>
+      </div>
+
+      <ul class="checks">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="#22c55e" />
+            <path d="M8 12.4l2.6 2.6L16 9" stroke="#fff" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Skips logos, icons &amp; agent photos
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="#22c55e" />
+            <path d="M8 12.4l2.6 2.6L16 9" stroke="#fff" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          High-res photos, duplicates removed
+        </li>
+      </ul>
+
+      <button id="go" class="cta">Download Photos</button>
+
+      <div id="status" class="status"></div>
+
+      <p class="note">
+        The ZIP downloads straight to your browser. Extract it and edit in Photoshop.
+      </p>
     </div>
-
-    <p class="sub">
-      Paste a PropertyFinder listing link and download all of its photos as a
-      single ZIP file.
-    </p>
-
-    <label for="url">Listing URL</label>
-    <input
-      id="url"
-      type="url"
-      inputmode="url"
-      autocomplete="off"
-      placeholder="https://www.propertyfinder.ae/en/plp/..."
-    />
-
-    <button id="go">Download Photos</button>
-
-    <div id="status" class="status"></div>
-
-    <p class="note">
-      The ZIP downloads straight to your browser. Extract it and edit the
-      photos in Photoshop.
-    </p>
   </main>
 
   <script>
     // ===================================================================
-    //  Set this to your live Render backend URL after deploying, e.g.
-    //  const BACKEND_URL = "https://pf-web-backend.onrender.com";
-    //  For local testing use: "http://127.0.0.1:5000"
+    //  Live Render backend. For local testing use "http://127.0.0.1:5000".
     // ===================================================================
     const BACKEND_URL = "https://pf-web-d4in.onrender.com";
 
     const urlInput = document.getElementById("url");
     const goBtn = document.getElementById("go");
+    const pasteBtn = document.getElementById("paste");
     const statusEl = document.getElementById("status");
 
     function setStatus(message, type, spinner) {
@@ -210,12 +326,21 @@
 
     function filenameFromHeader(header) {
       if (!header) return null;
-      // filename*=UTF-8''name.zip  OR  filename="name.zip"
       let m = header.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
       if (m && m[1]) return decodeURIComponent(m[1].replace(/["']/g, "").trim());
       m = header.match(/filename="?([^"]+)"?/i);
       if (m && m[1]) return m[1].trim();
       return null;
+    }
+
+    async function pasteFromClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) urlInput.value = text.trim();
+      } catch (e) {
+        // Clipboard blocked (permissions / insecure context) - let the user paste manually.
+      }
+      urlInput.focus();
     }
 
     async function downloadPhotos() {
@@ -286,6 +411,7 @@
     }
 
     goBtn.addEventListener("click", downloadPhotos);
+    pasteBtn.addEventListener("click", pasteFromClipboard);
     urlInput.addEventListener("keydown", function (e) {
       if (e.key === "Enter") downloadPhotos();
     });
