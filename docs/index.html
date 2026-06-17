@@ -262,7 +262,16 @@
     .status.ok { color: var(--ok); font-weight: 600; }
     .status.err { color: var(--err); font-weight: 500; }
 
-    .note { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid var(--line); color: #9aa0a6; font-size: 0.78rem; line-height: 1.5; text-align: center; }
+    .bkstatus { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 16px; font-size: 0.78rem; color: #9aa0a6; transition: color var(--dur-base) var(--ease-standard); }
+    .bkdot { width: 8px; height: 8px; border-radius: 50%; background: #c7c9cc; flex: none; transition: background var(--dur-base) var(--ease-standard); }
+    .bkstatus.online { color: #3f4651; }
+    .bkstatus.online .bkdot { background: var(--ok); box-shadow: 0 0 0 3px rgba(31,157,87,0.16); }
+    .bkstatus.waking .bkdot { background: #e0a32c; box-shadow: 0 0 0 3px rgba(224,163,44,0.16); animation: bkpulse 1.2s ease-in-out infinite; }
+    .bkstatus.offline .bkdot { background: var(--err); }
+    .bkstatus.checking .bkdot { animation: bkpulse 1.2s ease-in-out infinite; }
+    @keyframes bkpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    .note { margin: 14px 0 0; padding-top: 15px; border-top: 1px solid var(--line); color: #9aa0a6; font-size: 0.78rem; line-height: 1.5; text-align: center; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
@@ -369,6 +378,10 @@
         </div>
 
         <div id="status" class="status"></div>
+
+        <div id="bkstatus" class="bkstatus checking" aria-live="polite">
+          <span class="bkdot" aria-hidden="true"></span><span id="bktext">Checking server…</span>
+        </div>
 
         <p class="note">
           The ZIP downloads straight to your browser. Extract it and edit in Photoshop.
@@ -665,6 +678,40 @@
     goBtn.addEventListener("click", downloadPhotos);
     pasteBtn.addEventListener("click", pasteFromClipboard);
     urlInput.addEventListener("keydown", function (e) { if (e.key === "Enter") downloadPhotos(); });
+
+    // ---- live backend health/status check (also warms the free-tier server) ----
+    function setBackend(state, text) {
+      const el = document.getElementById("bkstatus");
+      const tx = document.getElementById("bktext");
+      if (el) el.className = "bkstatus " + state;
+      if (tx) tx.textContent = text;
+    }
+    async function checkBackend() {
+      if (!BACKEND_URL || BACKEND_URL.indexOf("PASTE_") !== -1) {
+        setBackend("offline", "Backend URL not set");
+        return;
+      }
+      setBackend("checking", "Checking server…");
+      const waking = setTimeout(function () {
+        setBackend("waking", "Waking up the server…");
+      }, 3500);
+      try {
+        const r = await fetch(BACKEND_URL + "/", { method: "GET", cache: "no-store" });
+        clearTimeout(waking);
+        if (r.ok) {
+          let v = "";
+          try { const d = await r.json(); if (d && d.version) v = " · v" + d.version; } catch (e) {}
+          setBackend("online", "Server online" + v);
+        } else {
+          setBackend("offline", "Server error");
+        }
+      } catch (e) {
+        clearTimeout(waking);
+        setBackend("offline", "Server offline");
+      }
+    }
+    checkBackend();
+    window.addEventListener("focus", checkBackend);
   </script>
 </body>
 </html>
