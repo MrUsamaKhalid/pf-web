@@ -43,7 +43,7 @@ TARGET_WIDTH = 1200          # preferred image width
 MIN_BYTES = 8 * 1024         # reject anything smaller than 8 KB
 MAX_IMAGES = 80              # safety cap on number of photos
 REQUEST_TIMEOUT = 25         # per-image download timeout (seconds)
-DOWNLOAD_WORKERS = 6         # parallel image downloads
+DOWNLOAD_WORKERS = 10        # parallel image downloads
 NAV_TIMEOUT = 60_000         # page navigation timeout (ms)
 
 BROWSER_HEADERS = {
@@ -365,16 +365,17 @@ DOM_COLLECT_JS = r"""
 AUTO_SCROLL_JS = r"""
 async () => {
   await new Promise((resolve) => {
-    let total = 0;
-    const step = 700;
+    let steps = 0;
+    const maxSteps = 16;                 // hard cap (~1.8s) so very tall pages don't stall
     const timer = setInterval(() => {
-      window.scrollBy(0, step);
-      total += step;
-      if (total >= document.body.scrollHeight + 2500) {
+      window.scrollBy(0, Math.max(700, window.innerHeight * 0.9));
+      steps++;
+      if (steps >= maxSteps ||
+          (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 5) {
         clearInterval(timer);
         resolve();
       }
-    }, 180);
+    }, 110);
   });
 }
 """
@@ -415,7 +416,7 @@ def scrape_listing_stream(url):
             yield ("log", "Opening the listing page")
             page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
             try:
-                page.wait_for_load_state("networkidle", timeout=15_000)
+                page.wait_for_load_state("networkidle", timeout=6_000)
             except PWTimeout:
                 pass
 
@@ -424,12 +425,12 @@ def scrape_listing_stream(url):
                 page.evaluate(AUTO_SCROLL_JS)
             except Exception:
                 pass
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(700)
             try:
                 page.evaluate("window.scrollTo(0, 0)")
             except Exception:
                 pass
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(300)
 
             yield ("log", "Reading embedded gallery data")
             try:

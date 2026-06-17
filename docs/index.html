@@ -594,6 +594,11 @@
       setStatus("", "");
       resetActivity();
       addStep("Contacting backend");
+      const wakeTimer = setTimeout(function () {
+        if (activeLine && activeLine.querySelector(".txt").textContent === "Contacting backend")
+          activeLine.querySelector(".txt").textContent =
+            "Waking up the server (first run can take up to a minute)…";
+      }, 6000);
 
       let res;
       try {
@@ -603,9 +608,11 @@
           body: JSON.stringify({ url: url }),
         });
       } catch (e) {
+        clearTimeout(wakeTimer);
         onError("Render backend is waking up. Try again in a moment.");
         goBtn.disabled = false; return;
       }
+      clearTimeout(wakeTimer);
 
       if (!res.ok) {
         let message = "Something went wrong. Please try again.";
