@@ -300,8 +300,8 @@
 
         <h1>Listing Photo Downloader</h1>
         <p class="sub">
-          Paste a PropertyFinder listing link and download every photo in one
-          clean ZIP, ready to edit in Photoshop.
+          Paste a PropertyFinder listing link and download all its photos —
+          property and community, full-resolution, sorted into folders.
         </p>
 
         <div class="field" data-cursor>
@@ -342,12 +342,12 @@
           <li class="feat">
             <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3"
               stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
-            High-res ~1200px
+            Full-resolution photos
           </li>
           <li class="feat">
             <span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3"
               stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg></span>
-            Auto-named ZIP
+            Property + community folders
           </li>
         </ul>
 
@@ -563,13 +563,20 @@
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(objectUrl);
 
+        let summary = "Done - " + msg.count + " photos";
+        if (typeof msg.property === "number" && typeof msg.community === "number" &&
+            (msg.property + msg.community) === msg.count && msg.count > 0) {
+          summary = "Done - " + msg.property + " property + " + msg.community +
+                    " community (" + msg.count + " total)";
+        }
+
         const li = document.createElement("li");
         li.className = "log-line";
         li.innerHTML = '<span class="ico">' + CHECK + '</span><span class="txt"></span>';
-        li.querySelector(".txt").textContent = "Done - " + msg.count + " photos saved to your downloads";
+        li.querySelector(".txt").textContent = summary + " — saved to your downloads";
         logEl.appendChild(li);
         activityEl.scrollTop = activityEl.scrollHeight;
-        setStatus("Done - " + msg.count + " photos", "ok");
+        setStatus(summary, "ok");
       } catch (e) {
         onError("Could not save the ZIP. Please try again.");
       }
