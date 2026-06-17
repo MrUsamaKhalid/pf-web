@@ -21,6 +21,7 @@
   </noscript>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
 
   <style>
     :root {
@@ -408,10 +409,11 @@
   <!-- BATCH VIEW -->
   <main class="card" id="batchView" style="position:relative;z-index:1;max-width:520px;" hidden>
     <h1>Batch download</h1>
-    <p class="sub">Paste multiple PropertyFinder links — one per line. They run one at a time and each ZIP downloads automatically. Keep this tab open until it finishes.</p>
+    <p class="sub">Paste multiple PropertyFinder links — one per line. They run one at a time; then grab them all as one ZIP, or download any row individually. Keep this tab open until it finishes.</p>
     <textarea id="batchUrls" class="batch-area" aria-label="PropertyFinder listing URLs, one per line"
       placeholder="https://www.propertyfinder.ae/en/plp/...&#10;https://www.propertyfinder.ae/en/plp/..."></textarea>
-    <button id="batchGo" class="btn-primary" type="button" style="margin-top: 14px;">Download all</button>
+    <button id="batchGo" class="btn-primary" type="button" style="margin-top: 14px;">Process listings</button>
+    <button id="batchAll" class="btn-primary" type="button" style="margin-top: 12px;" hidden>⬇ Download all as one ZIP</button>
     <ul class="hist-list" id="batchList" style="margin-top: 16px;"></ul>
     <div id="batchSummary" class="status"></div>
   </main>
@@ -696,11 +698,22 @@
       activityEl.scrollTop = activityEl.scrollHeight;
     }
     function onError(message) { failActive(); addErrorLine(message); setStatus(message, "err"); }
-    function b64ToBlob(b64, type) {
+    function b64ToBytes(b64) {
       const bin = atob(b64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return new Blob([bytes], { type: type || "application/octet-stream" });
+      return bytes;
+    }
+    function b64ToBlob(b64, type) {
+      return new Blob([b64ToBytes(b64)], { type: type || "application/octet-stream" });
+    }
+    function downloadBytes(bytes, name) {
+      const blob = (bytes instanceof Blob) ? bytes : new Blob([bytes], { type: "application/zip" });
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = u; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(u); }, 40000);
     }
     function onDone(msg) {
       completeActive();
@@ -711,11 +724,7 @@
         const dlName = cleanName ? cleanName + ".zip" : (msg.filename || "propertyfinder-photos.zip");
         lastBlob = blob;
         lastFilename = dlName;
-        const objectUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = objectUrl; a.download = dlName;
-        document.body.appendChild(a); a.click(); a.remove();
-        URL.revokeObjectURL(objectUrl);
+        downloadBytes(blob, dlName);
 
         let summary = "Done - " + msg.count + " photos";
         if (typeof msg.property === "number" && typeof msg.community === "number" &&
@@ -757,16 +766,17 @@
         .replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 80);
     }
     // shared, UI-agnostic scrape core used by single-download AND batch
-    async function streamScrape(url, cb) {
+    async function streamScrape(url, cb, signal) {
       let res;
       try {
         res = await fetch(BACKEND_URL + "/scrape", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: url }),
+          signal: signal,
         });
       } catch (e) {
-        cb.error("Render backend is waking up. Try again in a moment."); return;
+        cb.error(signal && signal.aborted ? "Timed out." : "Render backend is waking up. Try again in a moment."); return;
       }
       if (!res.ok) {
         let message = "Something went wrong. Please try again.";
@@ -802,12 +812,12 @@
         if (!finished && tail) { let m = null; try { m = JSON.parse(tail); } catch (e) {} if (m) handle(m); }
         if (!finished) cb.error("Connection ended early. Please try again.");
       } catch (e) {
-        cb.error("Connection lost while scraping. Please try again.");
+        cb.error(signal && signal.aborted ? "Timed out." : "Connection lost while scraping. Please try again.");
       }
     }
 
     async function downloadPhotos() {
-      if (inFlight) return;
+      if (inFlight || batchRunning) return;
       const url = urlInput.value.trim();
       lastUrl = url;
       lastName = nameInput ? nameInput.value.trim() : "";
@@ -829,15 +839,18 @@
             "Waking up the server (first run can take up to a minute)…";
       }, 6000);
 
-      await streamScrape(url, {
-        log: function (m) { clearTimeout(wakeTimer); addStep(m); },
-        progress: function (d, t) { clearTimeout(wakeTimer); onProgress(d, t); },
-        error: function (m) { clearTimeout(wakeTimer); onError(m); },
-        done: function (msg) { clearTimeout(wakeTimer); onDone(msg); },
-      });
-      clearTimeout(wakeTimer);
-      goBtn.disabled = false;
-      inFlight = false;
+      try {
+        await streamScrape(url, {
+          log: function (m) { clearTimeout(wakeTimer); addStep(m); },
+          progress: function (d, t) { clearTimeout(wakeTimer); onProgress(d, t); },
+          error: function (m) { clearTimeout(wakeTimer); onError(m); },
+          done: function (msg) { clearTimeout(wakeTimer); onDone(msg); },
+        });
+      } finally {
+        clearTimeout(wakeTimer);
+        goBtn.disabled = false;
+        inFlight = false;
+      }
     }
 
     goBtn.addEventListener("click", downloadPhotos);
@@ -894,6 +907,7 @@
     const batchGo = document.getElementById("batchGo");
     const batchList = document.getElementById("batchList");
     const batchSummary = document.getElementById("batchSummary");
+    const batchAll = document.getElementById("batchAll");
     const tbEmail = document.getElementById("tbEmail");
     const authEmail = document.getElementById("authEmail");
     const authPassword = document.getElementById("authPassword");
@@ -972,13 +986,15 @@
     async function insertHistory(url, name, msg) {
       if (!sb || !url) return null;
       try {
-        const { data, error } = await sb.from("downloads").insert({
+        const payload = {
           listing_url: url,
           title: name || msg.title || null,
           property_count: msg.property || 0,
           community_count: msg.community || 0,
           total_count: msg.count || 0,
-        }).select("id").single();
+        };
+        if (currentUserId) payload.user_id = currentUserId;
+        const { data, error } = await sb.from("downloads").insert(payload).select("id").single();
         if (!error && data) return data.id;
       } catch (e) { /* best-effort */ }
       return null;
@@ -1059,65 +1075,93 @@
 
     /* ---- batch: sequential (concurrency = 1) so the free worker never OOMs ---- */
     let batchRunning = false;
+    function normUrl(u) {
+      try { const x = new URL(u); return x.protocol + "//" + x.hostname.toLowerCase() + x.pathname.replace(/\/+$/, ""); }
+      catch (e) { return u.toLowerCase(); }
+    }
+    function isPfUrl(u) {
+      try { return new URL(u).hostname.toLowerCase().indexOf("propertyfinder.") !== -1; }
+      catch (e) { return false; }
+    }
     async function runBatch() {
-      if (batchRunning) return;
+      if (batchRunning || inFlight) return;
       const raw = batchUrls.value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-      const seen = {}; const urls = [];
-      raw.forEach(function (u) { if (!seen[u]) { seen[u] = 1; urls.push(u); } });
+      const seen = new Set(); const urls = [];
+      raw.forEach(function (u) { const k = normUrl(u); if (!seen.has(k)) { seen.add(k); urls.push(u); } });
       if (!urls.length) {
         batchSummary.className = "status err";
         batchSummary.textContent = "Paste at least one PropertyFinder link.";
         return;
       }
-      batchRunning = true; batchGo.disabled = true; batchList.innerHTML = "";
+      batchRunning = true; batchGo.disabled = true; batchList.innerHTML = ""; batchAll.hidden = true;
+      const collected = [];
       let ok = 0, fail = 0;
-      for (let i = 0; i < urls.length; i++) {
-        const url = urls[i];
-        const li = document.createElement("li"); li.className = "hist-item";
-        const t = document.createElement("p"); t.className = "hist-title"; t.textContent = url;
-        const m = document.createElement("p"); m.className = "hist-meta"; m.textContent = "Queued…";
-        li.appendChild(t); li.appendChild(m); batchList.appendChild(li);
-        batchSummary.className = "status";
-        batchSummary.textContent = "Processing " + (i + 1) + " of " + urls.length + "…";
+      try {
+        for (let i = 0; i < urls.length; i++) {
+          const url = urls[i];
+          const li = document.createElement("li"); li.className = "hist-item";
+          const t = document.createElement("p"); t.className = "hist-title"; t.textContent = url;
+          const m = document.createElement("p"); m.className = "hist-meta"; m.textContent = "Queued…";
+          const actions = document.createElement("div"); actions.className = "hist-actions";
+          li.appendChild(t); li.appendChild(m); li.appendChild(actions); batchList.appendChild(li);
+          batchSummary.className = "status";
+          batchSummary.textContent = "Processing " + (i + 1) + " of " + urls.length + "…";
 
-        if (url.toLowerCase().indexOf("propertyfinder") === -1) {
-          m.textContent = "Skipped — not a PropertyFinder link"; li.classList.add("err"); fail++; continue;
-        }
-        m.textContent = "Starting…";
-        const result = await new Promise(function (resolve) {
-          streamScrape(url, {
-            log: function (msg) { m.textContent = msg; if (msg.indexOf("Listing: ") === 0) t.textContent = msg.slice(9); },
-            progress: function (d, total) { m.textContent = "Downloading " + d + "/" + total; },
-            error: function (msg) { resolve({ error: msg }); },
-            done: function (msg) { resolve({ done: msg }); },
+          if (!isPfUrl(url)) { m.textContent = "Skipped — not a PropertyFinder link"; li.classList.add("err"); fail++; continue; }
+          m.textContent = "Starting…";
+
+          const controller = new AbortController();
+          const timer = setTimeout(function () { controller.abort(); }, 120000);
+          const result = await new Promise(function (resolve) {
+            let settled = false;
+            streamScrape(url, {
+              log: function (msg) { m.textContent = msg; if (msg.indexOf("Listing: ") === 0) t.textContent = msg.slice(9); },
+              progress: function (d, total) { m.textContent = "Downloading " + d + "/" + total; },
+              error: function (msg) { if (!settled) { settled = true; resolve({ error: msg }); } },
+              done: function (msg) { if (!settled) { settled = true; resolve({ done: msg }); } },
+            }, controller.signal);
           });
-        });
+          clearTimeout(timer);
 
-        if (result && result.done) {
-          const msg = result.done;
-          try {
-            const blob = b64ToBlob(msg.zip, "application/zip");
+          if (result && result.done && (result.done.count || 0) > 0) {
+            const msg = result.done;
             const base = sanitizeName(msg.title) || (msg.filename ? msg.filename.replace(/\.zip$/, "") : "propertyfinder-photos");
-            const ou = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = ou; a.download = base + ".zip";
-            document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(ou);
-          } catch (e) {}
-          await insertHistory(url, sanitizeName(msg.title), msg);
-          t.textContent = msg.title || url;
-          m.textContent = "✓ " + (msg.property || 0) + " property · " + (msg.community || 0) +
-            " community (" + (msg.count || 0) + ")";
-          li.classList.add("ok"); ok++;
-        } else {
-          m.textContent = "✗ " + ((result && result.error) || "Failed");
-          li.classList.add("err"); fail++;
+            let bytes = null;
+            try { bytes = b64ToBytes(msg.zip); } catch (e) {}
+            if (bytes) {
+              collected.push({ name: base + ".zip", bytes: bytes });
+              const dl = document.createElement("button");
+              dl.className = "hist-btn"; dl.type = "button"; dl.textContent = "Download";
+              dl.addEventListener("click", function () { downloadBytes(bytes, base + ".zip"); });
+              actions.appendChild(dl);
+            }
+            await insertHistory(url, sanitizeName(msg.title), msg);
+            t.textContent = msg.title || url;
+            m.textContent = "✓ " + (msg.property || 0) + " property · " + (msg.community || 0) + " community (" + (msg.count || 0) + ")";
+            li.classList.add("ok"); ok++;
+          } else if (result && result.done) {
+            m.textContent = "No photos found on this listing"; li.classList.add("err"); fail++;
+          } else {
+            m.textContent = "✗ " + ((result && result.error) || "Failed"); li.classList.add("err"); fail++;
+          }
         }
+      } finally {
+        batchRunning = false; batchGo.disabled = false;
       }
-      batchRunning = false; batchGo.disabled = false;
-      batchSummary.className = "status ok";
-      batchSummary.textContent = "Done — " + ok + " of " + urls.length + " downloaded" +
-        (fail ? (" · " + fail + " failed/skipped") : "");
+      batchSummary.className = ok ? "status ok" : "status err";
+      batchSummary.textContent = "Done — " + ok + " of " + urls.length + " downloaded" + (fail ? (" · " + fail + " failed/skipped") : "");
+      if (collected.length && window.fflate) {
+        batchAll.hidden = false;
+        batchAll.onclick = function () {
+          const files = {}; const used = {};
+          collected.forEach(function (c) { let n = c.name; let k = 1; while (used[n]) { k++; n = c.name.replace(/\.zip$/, "") + " (" + k + ").zip"; } used[n] = 1; files[n] = c.bytes; });
+          try { downloadBytes(window.fflate.zipSync(files, { level: 0 }), "propertyfinder-batch-" + collected.length + ".zip"); }
+          catch (e) { batchSummary.className = "status err"; batchSummary.textContent = "Could not build the combined ZIP — use the per-row Download buttons."; }
+        };
+      }
     }
     if (batchGo) batchGo.addEventListener("click", runBatch);
+    window.addEventListener("beforeunload", function (e) { if (batchRunning) { e.preventDefault(); e.returnValue = ""; } });
 
     authSwitch.addEventListener("click", function () {
       authMode = authMode === "signin" ? "signup" : "signin";
@@ -1150,7 +1194,7 @@
             setAuthStatus("Sign-ups are limited to @sykonproperties.ae emails.", "err");
             authSubmit.disabled = false; return;
           }
-          const { data, error } = await sb.auth.signUp({ email: email, password: password });
+          const { data, error } = await sb.auth.signUp({ email: email, password: password, options: { emailRedirectTo: window.location.origin + window.location.pathname } });
           if (error) {
             const msg = /domain|database error|sykonproperties/i.test(error.message || "")
               ? "Sign-ups are limited to @sykonproperties.ae emails." : error.message;
@@ -1171,7 +1215,7 @@
       if (!email) { setAuthStatus("Enter your email first.", "err"); return; }
       setAuthStatus("Sending magic link…", "");
       try {
-        const { error } = await sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: window.location.href } });
+        const { error } = await sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: window.location.origin + window.location.pathname } });
         setAuthStatus(error ? error.message : "Magic link sent — check your email.", error ? "err" : "ok");
       } catch (e) {
         setAuthStatus("Could not send the link. Please try again.", "err");
