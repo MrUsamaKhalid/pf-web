@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PropertyFinder Photo Downloader</title>
+  <style>
+    :root {
+      --bg: #111;
+      --card: #1a1a1a;
+      --accent: #d4af37;
+      --accent-dim: #b7952c;
+      --text: #f2f2f2;
+      --muted: #9a9a9a;
+      --border: #2b2b2b;
+      --err: #ff6b6b;
+      --ok: #6bd28a;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 24px 24px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      margin: 0;
+      letter-spacing: 0.2px;
+    }
+
+    .sub {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+      margin: 0 0 22px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    input[type="url"] {
+      width: 100%;
+      padding: 14px 14px;
+      font-size: 1rem;
+      color: var(--text);
+      background: #0d0d0d;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    input[type="url"]::placeholder { color: #6a6a6a; }
+
+    input[type="url"]:focus { border-color: var(--accent); }
+
+    button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 15px 16px;
+      font-size: 1.02rem;
+      font-weight: 600;
+      color: #1a1400;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.05s ease;
+    }
+
+    button:hover:not(:disabled) { background: var(--accent-dim); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status {
+      min-height: 22px;
+      margin-top: 18px;
+      font-size: 0.95rem;
+      text-align: center;
+      transition: color 0.15s ease;
+    }
+
+    .status.info { color: var(--accent); }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--err); }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-right: 8px;
+      border: 2px solid rgba(212, 175, 55, 0.35);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      vertical-align: -2px;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .note {
+      margin: 22px 0 0;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>PropertyFinder Photo Downloader</h1>
+    </div>
+
+    <p class="sub">
+      Paste a PropertyFinder listing link and download all of its photos as a
+      single ZIP file.
+    </p>
+
+    <label for="url">Listing URL</label>
+    <input
+      id="url"
+      type="url"
+      inputmode="url"
+      autocomplete="off"
+      placeholder="https://www.propertyfinder.ae/en/plp/..."
+    />
+
+    <button id="go">Download Photos</button>
+
+    <div id="status" class="status"></div>
+
+    <p class="note">
+      The ZIP downloads straight to your browser. Extract it and edit the
+      photos in Photoshop.
+    </p>
+  </main>
+
+  <script>
+    // ===================================================================
+    //  Set this to your live Render backend URL after deploying, e.g.
+    //  const BACKEND_URL = "https://pf-web-backend.onrender.com";
+    //  For local testing use: "http://127.0.0.1:5000"
+    // ===================================================================
+    const BACKEND_URL = "PASTE_RENDER_BACKEND_URL_HERE";
+
+    const urlInput = document.getElementById("url");
+    const goBtn = document.getElementById("go");
+    const statusEl = document.getElementById("status");
+
+    function setStatus(message, type, spinner) {
+      statusEl.className = "status " + (type || "");
+      statusEl.innerHTML =
+        (spinner ? '<span class="spinner"></span>' : "") + message;
+    }
+
+    function filenameFromHeader(header) {
+      if (!header) return null;
+      // filename*=UTF-8''name.zip  OR  filename="name.zip"
+      let m = header.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+      if (m && m[1]) return decodeURIComponent(m[1].replace(/["']/g, "").trim());
+      m = header.match(/filename="?([^"]+)"?/i);
+      if (m && m[1]) return m[1].trim();
+      return null;
+    }
+
+    async function downloadPhotos() {
+      const url = urlInput.value.trim();
+
+      if (!url) {
+        setStatus("Please paste a PropertyFinder link.", "err");
+        return;
+      }
+      if (!BACKEND_URL || BACKEND_URL.indexOf("PASTE_") !== -1) {
+        setStatus("Backend URL is not set yet.", "err");
+        return;
+      }
+
+      goBtn.disabled = true;
+      setStatus("Working...", "info", true);
+
+      let res;
+      try {
+        res = await fetch(BACKEND_URL + "/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url }),
+        });
+      } catch (e) {
+        setStatus("Render backend is waking up. Try again in a moment.", "err");
+        goBtn.disabled = false;
+        return;
+      }
+
+      if (!res.ok) {
+        let message = "Something went wrong. Please try again.";
+        try {
+          const data = await res.json();
+          if (data && data.error) message = data.error;
+        } catch (e) {
+          if (res.status === 502 || res.status === 503) {
+            message = "Render backend is waking up. Try again in a moment.";
+          }
+        }
+        setStatus(message, "err");
+        goBtn.disabled = false;
+        return;
+      }
+
+      try {
+        const blob = await res.blob();
+        const count = res.headers.get("X-Photo-Count") || "";
+        const filename =
+          filenameFromHeader(res.headers.get("Content-Disposition")) ||
+          "propertyfinder-photos.zip";
+
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+
+        setStatus("Done - " + (count || "?") + " photos", "ok");
+      } catch (e) {
+        setStatus("Could not save the ZIP. Please try again.", "err");
+      } finally {
+        goBtn.disabled = false;
+      }
+    }
+
+    goBtn.addEventListener("click", downloadPhotos);
+    urlInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") downloadPhotos();
+    });
+  </script>
+</body>
+</html>
