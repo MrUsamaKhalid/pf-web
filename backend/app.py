@@ -8,14 +8,16 @@ the FULL-resolution gallery photos, split into the same tabs the site shows:
     community[]  -> community / area photos     -> community/ in the ZIP
 
 Reliability:
-  * Listing data is read by plain HTTP first (fast); headless Chromium is a
-    fallback for bot-checked pages. The HTTP read itself is retried.
-  * Each photo is downloaded with multiple passes: it retries the full-res URL,
-    then falls back to the medium rendition, and every result is validated as a
-    real image (magic bytes), so broken/blank files never reach the ZIP.
+  * Listing data is read by plain HTTP first (fast, retried); headless Chromium
+    is a fallback for bot-checked pages, serialized so concurrent requests can't
+    launch several browsers at once.
+  * Each photo is downloaded with multiple passes (retry full -> medium) and
+    validated as a real image (magic bytes) before it reaches the ZIP.
+  * The job self-aborts before the gunicorn timeout and caps total bytes so the
+    free tier can't be OOM-killed mid-stream.
 
-POST /scrape streams newline-delimited JSON (NDJSON) progress; the final "done"
-message carries the ZIP (base64) plus property / community / total / failed.
+POST /scrape streams newline-delimited JSON (NDJSON); the final "done" message
+carries the ZIP (base64) plus property / community / total / failed counts.
 GET / and GET /health return a status payload.
 """
 
@@ -27,29 +29,43 @@ import json
 import base64
 import zipfile
 import hashlib
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import requests
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+
+# CORS: restrict to the known frontend origin(s); override with the
+# ALLOWED_ORIGINS env var (comma-separated) if the site moves.
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get(
+    "ALLOWED_ORIGINS",
+    "https://mrusamakhalid.github.io",
+).split(",") if o.strip()]
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+
+# Serialize the heavy browser fallback so concurrent requests can't spawn
+# several Chromium instances and exhaust the free tier's RAM.
+_BROWSER_LOCK = threading.Semaphore(1)
 
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
-MIN_BYTES = 5 * 1024         # reject anything smaller than ~5 KB (broken images)
-PAGE_TIMEOUT = 25            # listing-page fetch timeout (seconds)
-IMAGE_TIMEOUT = 20           # per-image download timeout (seconds)
-DOWNLOAD_WORKERS = 10        # parallel image downloads
-DOWNLOAD_ATTEMPTS = 3        # retries per image URL
-PAGE_ATTEMPTS = 2            # retries for the listing-page fetch
-RETRY_BACKOFF = 0.4          # seconds between retries
-NAV_TIMEOUT = 60_000         # browser navigation timeout (ms)
-MAX_PER_GROUP = 200          # safety cap per gallery
+MIN_BYTES = 5 * 1024              # reject anything smaller (broken images)
+PAGE_TIMEOUT = 20                # listing-page fetch timeout (seconds)
+IMAGE_TIMEOUT = 12               # per-image download timeout (seconds)
+DOWNLOAD_WORKERS = 10            # parallel image downloads
+DOWNLOAD_ATTEMPTS = 2            # attempts per image URL
+PAGE_ATTEMPTS = 2                # attempts for the listing-page fetch
+RETRY_BACKOFF = 0.4              # seconds between retries
+NAV_TIMEOUT = 45_000             # browser navigation timeout (ms)
+MAX_PER_GROUP = 80               # safety cap per gallery
+MAX_TOTAL_BYTES = 70 * 1024 * 1024   # hard cap on total photo bytes (memory)
+JOB_DEADLINE = 140               # seconds; self-abort before gunicorn's kill
 
 CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -84,6 +100,8 @@ BAD_WORDS = [
 ]
 IMG_EXT_RE = re.compile(r"\.(?:jpe?g|png|webp)(?:[?#]|$)", re.I)
 NEXT_DATA_RE = re.compile(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
+# A host is accepted only if it IS or is a sub-domain of propertyfinder.<tld>.
+HOST_RE = re.compile(r"(?:[a-z0-9-]+\.)*propertyfinder\.(?:ae|com|qa|bh|sa|eg|lb)")
 
 
 # --------------------------------------------------------------------------- #
@@ -139,6 +157,8 @@ def ext_for(content, content_type):
         return "png"
     if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
         return "webp"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
     return "jpg"
 
 
@@ -158,7 +178,7 @@ def _extract_next_data_json(html):
 
 
 def next_data_via_requests(url):
-    for attempt in range(PAGE_ATTEMPTS):
+    for _ in range(PAGE_ATTEMPTS):
         try:
             r = requests.get(url, headers=PAGE_HEADERS, timeout=PAGE_TIMEOUT)
         except requests.RequestException:
@@ -176,29 +196,30 @@ def next_data_via_playwright(url):
     from playwright.sync_api import sync_playwright
 
     html = None
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-            ],
-        )
-        try:
-            context = browser.new_context(
-                user_agent=CHROME_UA, locale="en-US",
-                viewport={"width": 1366, "height": 900},
+    with _BROWSER_LOCK:                     # only one browser at a time
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
-            page = context.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
             try:
-                page.wait_for_selector("#__NEXT_DATA__", timeout=8_000)
-            except Exception:
-                pass
-            html = page.content()
-        finally:
-            browser.close()
+                context = browser.new_context(
+                    user_agent=CHROME_UA, locale="en-US",
+                    viewport={"width": 1366, "height": 900},
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
+                try:
+                    page.wait_for_selector("#__NEXT_DATA__", timeout=8_000)
+                except Exception:
+                    pass
+                html = page.content()
+            finally:
+                browser.close()
     return _extract_next_data_json(html)
 
 
@@ -207,10 +228,7 @@ def next_data_via_playwright(url):
 # fallback in case the path shifts)
 # --------------------------------------------------------------------------- #
 def _image_tasks(arr):
-    """
-    For each image object return an ordered candidate URL list
-    (full first, then medium/original/small as download fallbacks).
-    """
+    """For each image object return an ordered candidate URL list (full first)."""
     tasks = []
     if not isinstance(arr, list):
         return tasks
@@ -296,7 +314,7 @@ def generic_fallback_tasks(data):
 
 
 # --------------------------------------------------------------------------- #
-# Listing metadata (for the confirmation log line + ZIP manifest)
+# Listing metadata (confirmation log line + ZIP manifest)
 # --------------------------------------------------------------------------- #
 def extract_meta(data):
     try:
@@ -365,7 +383,7 @@ def build_manifest(url, meta, n_prop, n_comm, n_other):
 def download_one(candidates):
     """Try each candidate URL with retries; return (content, ctype) or None."""
     for url in candidates:
-        for attempt in range(DOWNLOAD_ATTEMPTS):
+        for _ in range(DOWNLOAD_ATTEMPTS):
             try:
                 r = requests.get(url, headers=IMAGE_HEADERS, timeout=IMAGE_TIMEOUT)
             except requests.RequestException:
@@ -381,9 +399,10 @@ def download_one(candidates):
 
 
 def build_zip(groups, info_text=None):
-    """groups: list of (folder_name, [(content, ctype), ...])."""
+    """groups: list of (folder_name, [(content, ctype), ...]). Images are already
+    compressed, so store (no deflate) to save CPU and memory."""
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
         if info_text:
             zf.writestr("_info.txt", info_text)
         for folder, photos in groups:
@@ -398,7 +417,6 @@ def build_zip(groups, info_text=None):
 # Routes
 # --------------------------------------------------------------------------- #
 def _health_payload():
-    browser = False
     try:
         import playwright  # noqa: F401
         browser = True
@@ -431,13 +449,14 @@ def scrape():
         url = "https://" + url
     from urllib.parse import urlparse as _urlparse
     host = (_urlparse(url).hostname or "").lower()
-    if not re.search(r"(^|\.)propertyfinder\.[a-z.]{2,}$", host):
+    if not HOST_RE.fullmatch(host):
         return jsonify({"error": "URL must be a PropertyFinder listing."}), 400
 
     def nd(obj):
         return json.dumps(obj) + "\n"
 
     def generate():
+        start = time.monotonic()
         try:
             yield nd({"type": "log", "message": "Reading listing data"})
             data = next_data_via_requests(url)
@@ -447,6 +466,7 @@ def scrape():
                 try:
                     data = next_data_via_playwright(url)
                 except Exception:
+                    app.logger.exception("playwright fallback failed")
                     data = None
             if data is None:
                 yield nd({"type": "error",
@@ -493,9 +513,11 @@ def scrape():
             total = len(tasks)
             results = [None] * total
             done_n = 0
+            timed_out = False
             yield nd({"type": "progress", "done": 0, "total": total,
                       "message": f"Downloading photos 0/{total}"})
-            with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
+            pool = ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS)
+            try:
                 fut_to_index = {pool.submit(download_one, cands): i
                                 for i, (_tag, cands) in enumerate(tasks)}
                 for fut in as_completed(fut_to_index):
@@ -507,9 +529,19 @@ def scrape():
                     done_n += 1
                     yield nd({"type": "progress", "done": done_n, "total": total,
                               "message": f"Downloading photos {done_n}/{total}"})
+                    if time.monotonic() - start > JOB_DEADLINE:
+                        timed_out = True
+                        break
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
+            if timed_out:
+                yield nd({"type": "log",
+                          "message": "Time limit reached - packaging what was downloaded"})
 
             prop_photos, comm_photos, other_photos = [], [], []
             seen = set()
+            total_bytes = 0
+            capped = False
             for (tag, _cands), res in zip(tasks, results):
                 if not res:
                     continue
@@ -517,7 +549,11 @@ def scrape():
                 digest = hashlib.sha256(content).hexdigest()
                 if digest in seen:
                     continue
+                if total_bytes + len(content) > MAX_TOTAL_BYTES:
+                    capped = True
+                    continue
                 seen.add(digest)
+                total_bytes += len(content)
                 if tag == "property":
                     prop_photos.append((content, ctype))
                 elif tag == "community":
@@ -534,6 +570,9 @@ def scrape():
             if failed:
                 yield nd({"type": "log",
                           "message": f"{failed} image(s) could not be downloaded after retries"})
+            if capped:
+                yield nd({"type": "log",
+                          "message": "Size limit reached - some photos were left out"})
 
             if other_photos:
                 groups = [("", other_photos)]
@@ -548,8 +587,10 @@ def scrape():
             manifest = build_manifest(url, meta, len(prop_photos),
                                       len(comm_photos), len(other_photos))
             zip_buffer = build_zip(groups, info_text=manifest)
-            filename = f"{slug_from_url(url)}.zip"
-            encoded = base64.b64encode(zip_buffer.getvalue()).decode("ascii")
+            raw = zip_buffer.getvalue()
+            zip_buffer.close()
+            encoded = base64.b64encode(raw).decode("ascii")
+            del raw
             yield nd({
                 "type": "done",
                 "count": total_photos,
@@ -557,10 +598,11 @@ def scrape():
                 "community": len(comm_photos),
                 "failed": failed,
                 "title": meta.get("title"),
-                "filename": filename,
+                "filename": f"{slug_from_url(url)}.zip",
                 "zip": encoded,
             })
         except Exception:
+            app.logger.exception("scrape failed for %s", url)
             yield nd({"type": "error",
                       "message": "Something went wrong while building the ZIP."})
 

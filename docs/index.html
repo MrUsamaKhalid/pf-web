@@ -603,13 +603,16 @@
       urlInput.focus();
     }
 
+    let inFlight = false;
     async function downloadPhotos() {
+      if (inFlight) return;
       const url = urlInput.value.trim();
       if (!url) { setStatus("Please paste a PropertyFinder link.", "err"); return; }
       if (!BACKEND_URL || BACKEND_URL.indexOf("PASTE_") !== -1) {
         setStatus("Backend URL is not set yet.", "err"); return;
       }
 
+      inFlight = true;
       goBtn.disabled = true;
       setStatus("", "");
       resetActivity();
@@ -630,7 +633,7 @@
       } catch (e) {
         clearTimeout(wakeTimer);
         onError("Render backend is waking up. Try again in a moment.");
-        goBtn.disabled = false; return;
+        goBtn.disabled = false; inFlight = false; return;
       }
       clearTimeout(wakeTimer);
 
@@ -642,10 +645,21 @@
         } catch (e) {
           if (res.status === 502 || res.status === 503) message = "Render backend is waking up. Try again in a moment.";
         }
-        onError(message); goBtn.disabled = false; return;
+        onError(message); goBtn.disabled = false; inFlight = false; return;
+      }
+
+      if (!res.body) {
+        onError("Your browser can't stream this response. Please update it.");
+        goBtn.disabled = false; inFlight = false; return;
       }
 
       let finished = false;
+      function handleMessage(msg) {
+        if (msg.type === "log") addStep(msg.message);
+        else if (msg.type === "progress") onProgress(msg.done, msg.total);
+        else if (msg.type === "error") { onError(msg.message); finished = true; }
+        else if (msg.type === "done") { onDone(msg); finished = true; }
+      }
       try {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -658,26 +672,32 @@
           while ((idx = buffer.indexOf("\n")) >= 0) {
             const line = buffer.slice(0, idx).trim();
             buffer = buffer.slice(idx + 1);
-            if (!line) continue;
-            let msg;
-            try { msg = JSON.parse(line); } catch (e) { continue; }
-            if (msg.type === "log") addStep(msg.message);
-            else if (msg.type === "progress") onProgress(msg.done, msg.total);
-            else if (msg.type === "error") { onError(msg.message); finished = true; }
-            else if (msg.type === "done") { onDone(msg); finished = true; }
+            if (line) {
+              let msg = null;
+              try { msg = JSON.parse(line); } catch (e) {}
+              if (msg) handleMessage(msg);
+            }
           }
+          if (finished) { try { await reader.cancel(); } catch (e) {} break; }
+        }
+        const tail = (buffer + decoder.decode()).trim();
+        if (!finished && tail) {
+          let msg = null;
+          try { msg = JSON.parse(tail); } catch (e) {}
+          if (msg) handleMessage(msg);
         }
         if (!finished) onError("Connection ended early. Please try again.");
       } catch (e) {
         onError("Connection lost while scraping. Please try again.");
       } finally {
         goBtn.disabled = false;
+        inFlight = false;
       }
     }
 
     goBtn.addEventListener("click", downloadPhotos);
     pasteBtn.addEventListener("click", pasteFromClipboard);
-    urlInput.addEventListener("keydown", function (e) { if (e.key === "Enter") downloadPhotos(); });
+    urlInput.addEventListener("keydown", function (e) { if (e.key === "Enter" && !goBtn.disabled) downloadPhotos(); });
 
     // ---- live backend health/status check (also warms the free-tier server) ----
     function setBackend(state, text) {
