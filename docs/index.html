@@ -20,6 +20,8 @@
     />
   </noscript>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <style>
     :root {
       --bg: #ecedf0;
@@ -273,6 +275,60 @@
 
     .note { margin: 14px 0 0; padding-top: 15px; border-top: 1px solid var(--line); color: #9aa0a6; font-size: 0.78rem; line-height: 1.5; text-align: center; }
 
+    /* ===================== auth + history (Phase 1) ===================== */
+    .topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 11px 18px; background: rgba(254,254,254,0.82);
+      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+    .tb-brand { font-family: var(--font-display); font-weight: 600; font-size: 0.9rem; letter-spacing: -0.01em; }
+    .tb-brand b { color: var(--pf); font-weight: 600; }
+    .tb-right { display: flex; align-items: center; gap: 4px; }
+    .tb-email { color: var(--muted); font-size: 0.8rem; margin: 0 4px; max-width: 36vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tb-link {
+      border: 0; background: transparent; color: var(--ink); cursor: pointer;
+      font-family: var(--font-body); font-size: 0.82rem; font-weight: 500;
+      padding: 7px 11px; border-radius: 9px;
+      transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+    }
+    .tb-link:hover { background: var(--pf-soft); color: var(--pf-dark); }
+    .tb-link.active { color: var(--pf-dark); background: var(--pf-soft); }
+    body.authed { align-items: flex-start; padding-top: 84px; overflow-y: auto; }
+
+    .authsub { color: var(--muted); font-size: 0.92rem; line-height: 1.6; margin: 0 0 18px; }
+    .field + .field { margin-top: 10px; }
+    .authbtns { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+    .btn-primary {
+      width: 100%; padding: 15px; font-family: var(--font-display); font-weight: 600; font-size: 0.96rem;
+      color: #fff; background: var(--ink); border: 0; border-radius: 100px; cursor: pointer;
+      transition: background var(--dur-base) var(--ease-standard), transform var(--dur-fast) var(--ease-spring);
+    }
+    .btn-primary:hover { background: #000; }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-ghost {
+      width: 100%; padding: 12px; font-family: var(--font-body); font-weight: 500; font-size: 0.88rem;
+      color: var(--ink); background: transparent; border: 1.5px solid var(--line); border-radius: 100px; cursor: pointer;
+      transition: border-color var(--dur-base) var(--ease-standard), background var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard);
+    }
+    .btn-ghost:hover { border-color: var(--pf); background: var(--pf-soft); color: var(--pf-dark); }
+    .auth-toggle { text-align: center; margin-top: 16px; font-size: 0.85rem; color: var(--muted); }
+    .auth-toggle button { border: 0; background: transparent; color: var(--pf-dark); cursor: pointer; font-weight: 600; font-family: var(--font-body); font-size: 0.85rem; padding: 0; }
+
+    .hist-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .hist-head h1 { margin: 0; }
+    .hist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; max-height: 62vh; overflow-y: auto; }
+    .hist-item { border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; transition: border-color var(--dur-base) var(--ease-standard); }
+    .hist-item:hover { border-color: var(--pf); }
+    .hist-title { font-weight: 600; font-size: 0.9rem; margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hist-meta { color: var(--muted); font-size: 0.78rem; margin: 0 0 9px; }
+    .hist-actions { display: flex; gap: 8px; align-items: center; }
+    .hist-btn { display: inline-block; border: 0; background: var(--pf-soft); color: var(--pf-dark); cursor: pointer; font-family: var(--font-body); font-size: 0.78rem; font-weight: 600; padding: 7px 12px; border-radius: 9px; text-decoration: none; transition: background var(--dur-fast) var(--ease-standard); }
+    .hist-btn:hover { background: rgba(239,94,78,0.2); }
+    .hist-empty { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 22px 0; }
+
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
       .bg .aurora, .bg .grid, .blob { display: none; }
@@ -296,7 +352,47 @@
   <div class="cursor-dot" aria-hidden="true"></div>
   <div class="cursor-ring" aria-hidden="true"></div>
 
-  <div class="stage">
+  <!-- top bar (shown when signed in) -->
+  <header class="topbar" id="topbar" hidden>
+    <span class="tb-brand">PropertyFinder <b>×</b> Sykon</span>
+    <nav class="tb-right">
+      <button class="tb-link" id="navDownload" type="button">Download</button>
+      <button class="tb-link" id="navHistory" type="button">History</button>
+      <span class="tb-email" id="tbEmail"></span>
+      <button class="tb-link" id="signout" type="button">Sign out</button>
+    </nav>
+  </header>
+
+  <!-- AUTH VIEW (shown when signed out) -->
+  <main class="card" id="authView" style="position:relative;z-index:1;">
+    <div class="cobrand" id="authCobrand"></div>
+    <h1 id="authTitle">Sign in</h1>
+    <p class="authsub" id="authSub">Sign in to download listing photos and keep your history.</p>
+    <div class="field">
+      <input id="authEmail" type="email" autocomplete="email" placeholder="you@sykonproperties.ae" aria-label="Email" />
+    </div>
+    <div class="field">
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" />
+    </div>
+    <div class="authbtns">
+      <button class="btn-primary" id="authSubmit" type="button">Sign in</button>
+      <button class="btn-ghost" id="authMagic" type="button">Email me a magic link</button>
+    </div>
+    <div id="authStatus" class="status"></div>
+    <p class="auth-toggle"><span id="authToggleText">No account?</span> <button id="authSwitch" type="button">Create one</button></p>
+  </main>
+
+  <!-- HISTORY VIEW -->
+  <main class="card" id="historyView" style="position:relative;z-index:1;" hidden>
+    <div class="hist-head">
+      <h1>Your downloads</h1>
+      <button class="tb-link" id="histRefresh" type="button">Refresh</button>
+    </div>
+    <ul class="hist-list" id="histList"></ul>
+    <div class="hist-empty" id="histEmpty" hidden>No downloads yet.</div>
+  </main>
+
+  <div class="stage" id="appView" hidden>
     <div class="card-wrap">
       <main class="card" id="card">
         <div class="sheen" aria-hidden="true"></div>
@@ -590,6 +686,7 @@
         logEl.appendChild(li);
         activityEl.scrollTop = activityEl.scrollHeight;
         setStatus(summary, "ok");
+        recordHistory(msg);
       } catch (e) {
         onError("Could not save the ZIP. Please try again.");
       }
@@ -604,9 +701,11 @@
     }
 
     let inFlight = false;
+    let lastUrl = "";
     async function downloadPhotos() {
       if (inFlight) return;
       const url = urlInput.value.trim();
+      lastUrl = url;
       if (!url) { setStatus("Please paste a PropertyFinder link.", "err"); return; }
       if (!BACKEND_URL || BACKEND_URL.indexOf("PASTE_") !== -1) {
         setStatus("Backend URL is not set yet.", "err"); return;
@@ -732,6 +831,179 @@
     }
     checkBackend();
     window.addEventListener("focus", checkBackend);
+
+    /* ===================== auth + history (Phase 1, Supabase) ===================== */
+    const SUPABASE_URL = "https://zpvbarvrrsffvdnophqs.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_NSz0ah8Cf_xyWx3XyeQrKg_5QiilUOp";
+
+    let sb = null;
+    let authMode = "signin";
+
+    const topbarEl = document.getElementById("topbar");
+    const authView = document.getElementById("authView");
+    const appView = document.getElementById("appView");
+    const historyView = document.getElementById("historyView");
+    const tbEmail = document.getElementById("tbEmail");
+    const authEmail = document.getElementById("authEmail");
+    const authPassword = document.getElementById("authPassword");
+    const authSubmit = document.getElementById("authSubmit");
+    const authMagic = document.getElementById("authMagic");
+    const authSwitch = document.getElementById("authSwitch");
+    const authStatusEl = document.getElementById("authStatus");
+
+    // reuse the co-brand SVGs in the auth card without duplicating markup
+    (function () {
+      const src = document.querySelector("#appView .cobrand");
+      const dst = document.getElementById("authCobrand");
+      if (src && dst) dst.innerHTML = src.innerHTML;
+    })();
+
+    function showView(name) {
+      authView.hidden = name !== "auth";
+      appView.hidden = name !== "app";
+      historyView.hidden = name !== "history";
+      document.getElementById("navDownload").classList.toggle("active", name === "app");
+      document.getElementById("navHistory").classList.toggle("active", name === "history");
+    }
+
+    function onSession(session) {
+      if (session && session.user) {
+        document.body.classList.add("authed");
+        topbarEl.hidden = false;
+        tbEmail.textContent = session.user.email || "";
+        if (appView.hidden && historyView.hidden) showView("app");
+      } else {
+        document.body.classList.remove("authed");
+        topbarEl.hidden = true;
+        showView("auth");
+      }
+    }
+
+    function setAuthStatus(msg, type) {
+      authStatusEl.className = "status " + (type || "");
+      authStatusEl.textContent = msg;
+    }
+
+    async function recordHistory(msg) {
+      if (!sb || !lastUrl) return;
+      try {
+        await sb.from("downloads").insert({
+          listing_url: lastUrl,
+          title: msg.title || null,
+          property_count: msg.property || 0,
+          community_count: msg.community || 0,
+          total_count: msg.count || 0,
+        });
+      } catch (e) { /* history is best-effort */ }
+    }
+
+    async function loadHistory() {
+      const list = document.getElementById("histList");
+      const empty = document.getElementById("histEmpty");
+      if (!sb) { list.innerHTML = ""; empty.hidden = false; empty.textContent = "Sign in to see history."; return; }
+      empty.hidden = true;
+      list.innerHTML = '<li class="hist-empty">Loading…</li>';
+      const { data, error } = await sb
+        .from("downloads").select("*").order("created_at", { ascending: false }).limit(100);
+      list.innerHTML = "";
+      if (error || !data || !data.length) {
+        empty.hidden = false;
+        empty.textContent = error ? "Could not load history." : "No downloads yet.";
+        return;
+      }
+      data.forEach(function (row) {
+        const li = document.createElement("li");
+        li.className = "hist-item";
+        li.innerHTML =
+          '<p class="hist-title"></p><p class="hist-meta"></p>' +
+          '<div class="hist-actions"><button class="hist-btn redl" type="button">Download again</button>' +
+          '<a class="hist-btn open" target="_blank" rel="noopener">Open listing</a></div>';
+        li.querySelector(".hist-title").textContent = row.title || row.listing_url;
+        li.querySelector(".hist-meta").textContent =
+          (row.property_count || 0) + " property · " + (row.community_count || 0) +
+          " community · " + new Date(row.created_at).toLocaleString();
+        li.querySelector(".open").href = row.listing_url;
+        li.querySelector(".redl").addEventListener("click", function () {
+          urlInput.value = row.listing_url;
+          showView("app");
+          downloadPhotos();
+        });
+        list.appendChild(li);
+      });
+    }
+
+    // nav + auth controls
+    document.getElementById("navDownload").addEventListener("click", function () { showView("app"); });
+    document.getElementById("navHistory").addEventListener("click", function () { showView("history"); loadHistory(); });
+    document.getElementById("histRefresh").addEventListener("click", loadHistory);
+    document.getElementById("signout").addEventListener("click", async function () { if (sb) await sb.auth.signOut(); });
+
+    authSwitch.addEventListener("click", function () {
+      authMode = authMode === "signin" ? "signup" : "signin";
+      const signin = authMode === "signin";
+      document.getElementById("authTitle").textContent = signin ? "Sign in" : "Create account";
+      document.getElementById("authSub").textContent = signin
+        ? "Sign in to download listing photos and keep your history."
+        : "Create an account to save your download history.";
+      authSubmit.textContent = signin ? "Sign in" : "Create account";
+      authPassword.setAttribute("autocomplete", signin ? "current-password" : "new-password");
+      document.getElementById("authToggleText").textContent = signin ? "No account?" : "Have an account?";
+      authSwitch.textContent = signin ? "Create one" : "Sign in";
+      setAuthStatus("", "");
+    });
+
+    authSubmit.addEventListener("click", async function () {
+      if (!sb) { setAuthStatus("Auth is unavailable right now.", "err"); return; }
+      const email = authEmail.value.trim();
+      const password = authPassword.value;
+      if (!email || !password) { setAuthStatus("Enter your email and password.", "err"); return; }
+      if (authMode === "signup" && password.length < 6) { setAuthStatus("Password must be at least 6 characters.", "err"); return; }
+      authSubmit.disabled = true;
+      setAuthStatus(authMode === "signin" ? "Signing in…" : "Creating account…", "");
+      try {
+        if (authMode === "signin") {
+          const { error } = await sb.auth.signInWithPassword({ email: email, password: password });
+          if (error) setAuthStatus(error.message, "err");
+        } else {
+          const { data, error } = await sb.auth.signUp({ email: email, password: password });
+          if (error) setAuthStatus(error.message, "err");
+          else if (!data.session) setAuthStatus("Check your email to confirm, then sign in.", "ok");
+        }
+      } catch (e) {
+        setAuthStatus("Something went wrong. Please try again.", "err");
+      }
+      authSubmit.disabled = false;
+    });
+
+    authMagic.addEventListener("click", async function () {
+      if (!sb) { setAuthStatus("Auth is unavailable right now.", "err"); return; }
+      const email = authEmail.value.trim();
+      if (!email) { setAuthStatus("Enter your email first.", "err"); return; }
+      setAuthStatus("Sending magic link…", "");
+      try {
+        const { error } = await sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: window.location.href } });
+        setAuthStatus(error ? error.message : "Magic link sent — check your email.", error ? "err" : "ok");
+      } catch (e) {
+        setAuthStatus("Could not send the link. Please try again.", "err");
+      }
+    });
+
+    authEmail.addEventListener("keydown", function (e) { if (e.key === "Enter") authPassword.focus(); });
+    authPassword.addEventListener("keydown", function (e) { if (e.key === "Enter") authSubmit.click(); });
+
+    // init Supabase, or fall back to the ungated tool if the SDK fails to load
+    if (window.supabase && typeof window.supabase.createClient === "function") {
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+      });
+      sb.auth.getSession().then(function (res) { onSession(res.data.session); });
+      sb.auth.onAuthStateChange(function (_event, session) { onSession(session); });
+    } else {
+      // SDK blocked — don't lock anyone out; show the tool without history
+      document.body.classList.remove("authed");
+      topbarEl.hidden = true;
+      showView("app");
+    }
   </script>
 </body>
 </html>
