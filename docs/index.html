@@ -163,8 +163,12 @@
       padding: var(--s6);
       box-shadow: 0 34px 70px -30px rgba(28,32,44,.42), 0 6px 16px -10px rgba(28,32,44,.18);
       transform-style: preserve-3d;
+      /* The slow ease is for the RETURN to rest. While the pointer is actually
+         driving the tilt it has to track the hand, or the card feels like it is
+         lagging behind the cursor — which is worse than no tilt at all. */
       transition: transform var(--d-slow) var(--ease);
     }
+    .card.lift { transition: transform 70ms linear; }
     @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
     .sheen {
       position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
@@ -358,6 +362,11 @@
 
     .bar { margin-top: var(--s3); height: 6px; background: #e6e6ea; border-radius: var(--r-pill); overflow: hidden; }
     .bar span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #ff8568, #ef5e4e); border-radius: var(--r-pill); transition: width var(--d-slow) var(--ease); }
+    /* Downloading ends at 92% and the server then hashes, dedupes and writes the
+       archive — several seconds where a still bar reads as a hang. This says
+       "working" without claiming progress it cannot measure. */
+    .bar.packing span { animation: packing 1.1s var(--ease) infinite; }
+    @keyframes packing { 0% { opacity: 1; } 50% { opacity: .45; } 100% { opacity: 1; } }
 
     .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(239,94,78,.3); border-top-color: var(--pf); border-radius: 50%; animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -697,6 +706,7 @@
       /* ...but a 20-second job still needs to look alive. These two ARE the
          progress signal, so they keep moving; nothing else does. */
       .spinner { animation-duration: .7s !important; animation-iteration-count: infinite !important; }
+      .bar.packing span { animation-duration: 1.1s !important; animation-iteration-count: infinite !important; }
       .bar span { transition-duration: var(--d-slow) !important; }
     }
 
@@ -955,6 +965,7 @@
 
     let mode = "single";
     let busy = false;
+    let singleAbort = null, singleStartedAt = 0;
     let activeLine = null;
 
     /* ------------------------------ helpers ------------------------------ */
@@ -976,16 +987,20 @@
     }
     // v3 hands back a download token instead of the bytes: the browser fetches
     // the ZIP straight from the backend, so nothing large ever lives in JS.
-    // Tokens live 10 minutes. An expired one answers 404 with a JSON body and no
+    // Tokens live as long as the server says (expires_in). An expired one
+    // answers 404 with a JSON body and no
     // Content-Disposition, so clicking the anchor NAVIGATES the tab to that JSON
     // and takes the whole batch with it — including rows whose links still work.
     // Check first, but only once the link is old enough to be at risk, so the
     // normal click-it-immediately path pays nothing.
-    const ZIP_PREFLIGHT_AFTER = 8 * 60 * 1000;
+    // Checked at 80% of the link's real lifetime rather than a hardcoded eight
+    // minutes, which silently became wrong the moment the server's TTL changed.
+    const ZIP_PREFLIGHT_FRACTION = 0.8;
+    const ZIP_TTL_FALLBACK = 600;
 
-    async function saveFromUrl(path, name, createdAt, fromClick) {
+    async function saveFromUrl(path, name, createdAt, fromClick, ttl) {
       const url = BACKEND_URL + path + (name ? "?name=" + encodeURIComponent(name) : "");
-      const aging = createdAt && (Date.now() - createdAt) > ZIP_PREFLIGHT_AFTER;
+      const aging = createdAt && (Date.now() - createdAt) > (ttl || ZIP_TTL_FALLBACK) * 1000 * ZIP_PREFLIGHT_FRACTION;
       if (aging) {
         try {
           const probe = await fetch(url, { method: "HEAD", cache: "no-store" });
@@ -1013,6 +1028,13 @@
       return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
         .replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 80);
     }
+    // PropertyFinder listing URLs end in -<digits>.html; a search or an agent
+    // page does not. Catching that here turns a 20-second server round trip and
+    // a confusing error into an instant, specific one.
+    function looksLikeListing(u) {
+      try { return /-\d{4,}\.html?$/i.test(new URL(u).pathname); }
+      catch (e) { return false; }
+    }
     function isPfUrl(u) {
       try { return new URL(u).hostname.toLowerCase().indexOf("propertyfinder.") !== -1; }
       catch (e) { return false; }
@@ -1028,7 +1050,7 @@
       activeLine = null;
       logEl.hidden = kind !== "log";
       rowsEl.hidden = kind !== "rows";
-      barWrap.hidden = true; barFill.style.width = "0%";
+      barWrap.hidden = true; barFill.style.width = "0%"; barWrap.classList.remove("packing");
       resultsEl.hidden = false;
       zipAllBtn.hidden = true; retryBtn.hidden = true;
     }
@@ -1036,6 +1058,9 @@
       if (activeLine) { activeLine.classList.remove("on"); activeLine.querySelector(".ico").innerHTML = CHECK; }
     }
     function step(text) {
+      // Anything logged after the last photo means the download phase is over
+      // and the server is packaging.
+      if (/packaging/i.test(text)) barWrap.classList.add("packing");
       finishLine();
       const li = document.createElement("li");
       li.className = "log-line on";
@@ -1161,12 +1186,20 @@
       const url = urlInput.value.trim();
       if (!url) { setStatus("Paste a PropertyFinder link first.", "bad"); urlInput.focus(); return; }
       if (!isPfUrl(url)) { setStatus("That doesn't look like a PropertyFinder link.", "bad"); return; }
+      if (!looksLikeListing(url)) {
+        setStatus("That's a PropertyFinder page but not a single listing — open the property and copy its link.", "bad");
+        urlInput.focus(); return;
+      }
 
       // aria-disabled rather than disabled: setting `disabled` on the element
       // that was just activated blurs it in every browser, so a keyboard user
       // loses their place for the whole 20-second run. The click guard below
       // already prevents a second start.
-      busy = true; goBtn.setAttribute("aria-disabled", "true"); goBtn.classList.add("is-working");
+      // Batch has had a Stop since the queue landed; single mode had no
+      // AbortController on its path at all, so a wrong link meant watching it
+      // out. The CTA becomes Stop here too, for the same reason and the same way.
+      busy = true; singleAbort = new AbortController(); singleStartedAt = Date.now();
+      goLabel.textContent = "Stop"; goBtn.classList.add("is-stop");
       setStatus("", "");
       optLock(true);
       resetResults("log");
@@ -1188,6 +1221,7 @@
           done: (msg) => {
             clearTimeout(wake); finishLine();
             optNoteDone(msg);
+            barWrap.classList.remove("packing");
             barWrap.hidden = false; barFill.style.width = "100%";
             barWrap.setAttribute("aria-valuenow", "100");
             const name = msg.filename || "propertyfinder-photos.zip";
@@ -1217,7 +1251,7 @@
               again.title = name;
               again.addEventListener("click", async () => {
                 again.disabled = true;
-                const good = await saveFromUrl(msg.download, name, savedAt, true);
+                const good = await saveFromUrl(msg.download, name, savedAt, true, msg.expires_in);
                 again.disabled = false;
                 if (!good) { again.textContent = "Link expired — run it again"; again.disabled = true; }
               });
@@ -1229,10 +1263,11 @@
             setStatus((msg.truncated ? "Partly done — " : "Done — ") + summary,
                       msg.truncated ? "" : "ok");
           },
-        });
+        }, singleAbort ? singleAbort.signal : undefined);
       } finally {
-        clearTimeout(wake); busy = false;
-        goBtn.removeAttribute("aria-disabled"); goBtn.classList.remove("is-working");
+        clearTimeout(wake); busy = false; singleAbort = null;
+        goLabel.textContent = mode === "single" ? "Download photos" : "Process links";
+        goBtn.classList.remove("is-stop");
         optLock(false);
       }
     }
@@ -1326,7 +1361,7 @@
         dl.addEventListener("click", async () => {
           if (!item.entry.path) { saveBytes(item.entry.bytes, item.entry.name); return; }
           dl.disabled = true;
-          const ok = await saveFromUrl(item.entry.path, item.entry.name, item.entry.at, true);
+          const ok = await saveFromUrl(item.entry.path, item.entry.name, item.entry.at, true, item.entry.ttl);
           dl.disabled = false;
           if (!ok) {
             // The link died rather than the listing. Say so on the row and let
@@ -1423,19 +1458,29 @@
       zipAllBtn.textContent = "Building combined ZIP…";
       try {
         const files = {}; const used = Object.create(null);
+        let missed = 0;
         for (const c of collected) {
           let bytes = c.bytes;
           if (!bytes && c.path) {
-            const r = await fetch(BACKEND_URL + c.path, { cache: "no-store" });
-            if (!r.ok) throw new Error("expired");
-            bytes = new Uint8Array(await r.arrayBuffer());
+            try {
+              const r = await fetch(BACKEND_URL + c.path, { cache: "no-store" });
+              if (!r.ok) { missed++; continue; }
+              bytes = new Uint8Array(await r.arrayBuffer());
+            } catch (e) { missed++; continue; }
           }
+          if (!bytes) { missed++; continue; }
           let n = c.name, k = 1;
           while (used[n]) { k++; n = c.name.replace(/\.zip$/, "") + " (" + k + ").zip"; }
           used[n] = 1; files[n] = bytes;
         }
+        const kept = Object.keys(files).length;
+        // One lapsed link used to abort the whole combine, throwing away every
+        // archive already fetched. Package what is there and say what is not.
+        if (!kept) { setStatus("Those download links have expired — run the batch again.", "bad"); return; }
         saveBytes(window.fflate.zipSync(files, { level: 0 }),
-                  "propertyfinder-batch-" + collected.length + ".zip");
+                  "propertyfinder-batch-" + kept + ".zip");
+        if (missed) setStatus("Combined " + kept + " of " + collected.length
+          + " — " + missed + " link(s) had expired.", "");
       } catch (e) {
         setStatus("Couldn't build the combined ZIP — use the per-row Download buttons.", "bad");
       } finally {
@@ -1608,13 +1653,34 @@
         if (Date.now() - queueStartedAt < 700) return;
         queueHalt(); return;
       }
-      if (busy) return;
+      if (busy) {
+        // same double-tap guard as the queue: the label flips to Stop instantly
+        if (singleAbort && Date.now() - singleStartedAt > 700) {
+          setStatus("Stopped.", "");
+          try { singleAbort.abort(); } catch (e) {}
+        }
+        return;
+      }
       (mode === "single" ? runSingle() : runBatch());
     });
     urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !busy) runSingle(); });
     urlsInput.addEventListener("input", updateCounter);
     pasteBtn.addEventListener("click", async () => {
-      try { const t = await navigator.clipboard.readText(); if (t) urlInput.value = t.trim(); } catch (e) {}
+      // Safari and any denied permission reject here. Saying nothing left the
+      // user tapping a button that visibly does nothing — on the one control a
+      // phone-first user reaches for every single session.
+      try {
+        const t = await navigator.clipboard.readText();
+        if (t && t.trim()) {
+          urlInput.value = t.trim();
+          urlInput.dispatchEvent(new Event("input"));
+          setStatus("", "");
+        } else {
+          setStatus("Nothing to paste — copy the listing link first.", "bad");
+        }
+      } catch (e) {
+        setStatus("This browser won't share the clipboard — paste with Ctrl+V.", "bad");
+      }
       urlInput.focus();
     });
     window.addEventListener("beforeunload", (e) => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
