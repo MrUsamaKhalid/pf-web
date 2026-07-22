@@ -498,6 +498,12 @@
       display: flex; flex-direction: column; gap: var(--s3);
       padding: var(--s4);
       border-top: var(--stroke) solid var(--line);
+      /* Cap the panel against the viewport rather than the content: on a phone
+         the full list is ~615px, which pushed the card to 1427px and buried the
+         Download button 460px below the fold. */
+      max-height: min(58vh, 460px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     .opt-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: var(--h-mini); }
@@ -1922,6 +1928,18 @@
         optPanel.classList.add("open");
         if (optReady) optLive.textContent = "Options open. " + optSummaryText();
         optLastSpoken = "";
+        // Opening pushes the CTA down by the panel's height. Measured: on
+        // desktop it landed 41px below the fold, on a phone about 460px. The
+        // button must not silently leave the screen, so reclaim it once the
+        // expansion has settled — and only by the amount actually needed.
+        setTimeout(() => {
+          if (!optOpen) return;
+          const vh = (window.visualViewport || window).height || innerHeight;
+          const gap = goBtn.getBoundingClientRect().bottom - vh;
+          if (gap > 0) {
+            window.scrollBy({ top: gap + 16, behavior: OPT_REDUCE ? "auto" : "smooth" });
+          }
+        }, OPT_REDUCE ? 0 : 360);
       } else {
         optPanel.classList.remove("open");
         // hidden goes back on after the collapse so the panel leaves the tab
