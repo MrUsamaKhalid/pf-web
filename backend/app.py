@@ -121,8 +121,12 @@ HOST_RE = re.compile(r"(?:[a-z0-9-]+\.)*propertyfinder\.(?:ae|com|qa|bh|sa|eg|lb
 # File naming
 # --------------------------------------------------------------------------- #
 DEFAULT_NAME_PATTERN = "{index}"
-NAME_TOKENS = ("listing", "ref", "agent", "index", "date")
+# {agent} is the PropertyFinder listing agent — often a rival brokerage's staff.
+# {you} is whoever here ran the download, which is the name that usually belongs
+# on our own files.
+NAME_TOKENS = ("you", "listing", "ref", "agent", "index", "date")
 MAX_PATTERN_LEN = 120
+MAX_AGENT_LEN = 40
 
 # Windows Explorer still unpacks ZIPs through the legacy 260-char MAX_PATH, and
 # "Extract All" creates a folder named after the archive before writing a single
@@ -131,7 +135,7 @@ MAX_PATTERN_LEN = 120
 MAX_ARC_PATH = 120
 MAX_SEGMENT = 80        # NTFS/APFS/ext4 all stop at 255; 80 keeps names legible
 SLUG_MAX = 48           # the by_listing folder AND the .zip file name
-TOKEN_MAX = {"listing": 40, "ref": 24, "agent": 24, "date": 10, "index": 8}
+TOKEN_MAX = {"listing": 40, "ref": 24, "agent": 24, "you": 24, "date": 10, "index": 8}
 
 # The UAE has never observed DST and has been UTC+4 since 1972, so a fixed
 # offset is exactly as correct as zoneinfo here — and it does not depend on the
@@ -163,6 +167,11 @@ OPTION_SPEC = {
                     "label": "Photo file names",
                     "tokens": list(NAME_TOKENS), "max_len": MAX_PATTERN_LEN,
                     "note": "The extension is added from the image itself."},
+    # Free text rather than an account: this app has no sign-in, and one
+    # optional name is not worth reintroducing one.
+    "agent_name":  {"type": "text", "default": "", "label": "Your name",
+                    "max_len": MAX_AGENT_LEN,
+                    "note": "Fills the {you} token and is recorded in the info file."},
     # Present in the schema, deliberately not offered in the UI: the agency
     # watermark is burned into the master PropertyFinder stores, so there is no
     # honest "remove" to implement.
@@ -209,6 +218,15 @@ def normalize_options(raw):
                 notices.append(f"{spec['label']}: expected a number, using default.")
                 continue
             opts[key] = max(spec["min"], min(spec["max"], n))
+        elif spec["type"] == "text":
+            if isinstance(value, str):
+                # Kept as typed — the sanitiser runs at naming time, so the
+                # info file can still show "Usama Khalid" rather than a slug.
+                opts[key] = value.strip()[:spec["max_len"]]
+            elif value is None:
+                opts[key] = ""
+            else:
+                notices.append(f"{spec['label']}: expected text, leaving it blank.")
         elif spec["type"] == "pattern":
             # A naming pattern is never unrunnable — anything we cannot honour
             # falls back to the default and says so.
@@ -366,8 +384,15 @@ def parse_pattern(raw):
     return pattern, notices
 
 
-def naming_notes(pattern, meta):
-    """One notice per job for tokens this listing cannot fill — said once."""
+def naming_notes(pattern, meta, opts=None):
+    """One notice per job for tokens that cannot be filled — said once."""
+    notes = []
+    # {you} comes from settings, so an empty one is the operator's own doing and
+    # deserves a different sentence from "this listing has no reference".
+    if "{you}" in pattern and not safe_segment((opts or {}).get("agent_name") or "",
+                                               TOKEN_MAX["you"]):
+        notes.append("Your name is blank in options, so {you} was left out of "
+                     "the file names.")
     missing = []
     for token, key, human in (("{listing}", "title", "a usable title"),
                               ("{ref}", "reference", "an agency reference"),
@@ -375,10 +400,10 @@ def naming_notes(pattern, meta):
         if token in pattern and not safe_segment(meta.get(key) or "",
                                                  TOKEN_MAX[token[1:-1]]):
             missing.append((token, human))
-    if not missing:
-        return []
-    return [f"This listing has no {' or '.join(h for _, h in missing)} — "
-            f"{', '.join(t for t, _ in missing)} was left out of the file names."]
+    if missing:
+        notes.append(f"This listing has no {' or '.join(h for _, h in missing)} — "
+                     f"{', '.join(t for t, _ in missing)} was left out of the file names.")
+    return notes
 
 
 def build_name_plan(opts, meta, pad):
@@ -394,6 +419,8 @@ def build_name_plan(opts, meta, pad):
             "listing": safe_segment(meta.get("title") or "", TOKEN_MAX["listing"]),
             "ref": safe_segment(meta.get("reference") or "", TOKEN_MAX["ref"]),
             "agent": safe_segment(meta.get("agent") or "", TOKEN_MAX["agent"]),
+            # comes from the operator's own settings, not from the listing
+            "you": safe_segment(opts.get("agent_name") or "", TOKEN_MAX["you"]),
             "date": datetime.now(DUBAI_TZ).strftime("%Y-%m-%d"),
         },
     }
@@ -798,6 +825,8 @@ def build_manifest_txt(url, meta, n_prop, n_comm, n_other, opts):
     add("Agent:", meta.get("agent"))
     add("Brokerage:", meta.get("broker"))
     add("Source:", url)
+    # who here pulled it — distinct from the listing agent above
+    add("Saved by:", opts.get("agent_name") or None)
     add("Format:", "JPEG" if opts["format"] == "jpeg" else "original (WebP where served)")
     add("Names:", opts.get("naming", DEFAULT_NAME_PATTERN))
     lines.append("")
@@ -1093,7 +1122,7 @@ def scrape():
                 yield nd({"type": "log", "message": " · ".join(str(b) for b in bits)})
             yield nd({"type": "meta", "listing": meta, "slug": slug,
                       "suggested_filename": (slug or "propertyfinder-photos") + ".zip"})
-            for note in naming_notes(opts["naming"], meta):
+            for note in naming_notes(opts["naming"], meta, opts):
                 yield nd({"type": "notice", "message": note})
 
             limit = int(opts["max_images"])
