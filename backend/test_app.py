@@ -10,6 +10,7 @@ these has already caused a real bug once.
 
 import io
 import json
+import os
 import re
 import sys
 import zipfile
@@ -137,6 +138,12 @@ def test_pattern_parsing():
     check("missing {index} warns", any("index" in n for n in notes("{listing}")))
     check("slashes warn", any("folder" in n.lower() for n in notes("a/b{index}")))
     check("valid multi-token accepted", ok("{ref}-{listing}-{index}") == "{ref}-{listing}-{index}")
+    # Silent version of this: the literal folds away and every photo is a bare
+    # "01.jpg", with nothing said about why.
+    check("non-Latin literal warns", any("Latin" in n for n in notes("شقة-{index}")),
+          notes("شقة-{index}"))
+    check("Cyrillic literal warns", any("Latin" in n for n in notes("Вилла-{index}")))
+    check("plain ASCII literal is silent", not notes("villa-{index}"), notes("villa-{index}"))
 
 
 def test_render_names():
@@ -198,6 +205,51 @@ def test_unique_arc():
     used4 = set()
     res = backend.unique_arc("", "console"[:3], "jpg", "s" * 64, used4)
     check("reserved name dodged after clipping", res.lower() != "con.jpg", res)
+
+
+def test_frontend_mirror_in_sync():
+    """The live filename preview reimplements this file's naming rules in JS.
+
+    A preview that has drifted from the server is worse than no preview — it
+    tells the user a filename they will not get. Nothing else enforces this, so
+    pin the constants both sides share.
+    """
+    print("\nFrontend mirror")
+    page = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "index.html")
+    if not os.path.exists(page):
+        check("docs/index.html present", False, page)
+        return
+    js = open(page, encoding="utf-8").read()
+
+    for const, want in (("OPT_SEG_MAX", backend.MAX_SEGMENT),
+                        ("OPT_SLUG_MAX", backend.SLUG_MAX),
+                        ("OPT_MIN", backend.OPTION_SPEC["max_images"]["min"])):
+        m = re.search(const + r"\s*=\s*(\d+)", js)
+        eq(f"{const} matches Python", int(m.group(1)) if m else None, want)
+
+    m = re.search(r"OPT_DEFAULT_NAMING\s*=\s*\"([^\"]*)\"", js)
+    eq("default pattern matches", m.group(1) if m else None, backend.DEFAULT_NAME_PATTERN)
+
+    m = re.search(r"OPT_NAME_TOKENS\s*=\s*\[([^\]]*)\]", js)
+    tokens = set(re.findall(r'"([a-z]+)"', m.group(1))) if m else set()
+    eq("selectable tokens match the spec",
+       tokens | {"index"}, set(backend.NAME_TOKENS))
+
+    m = re.search(r"OPT_FOLD\s*=\s*\{(.*?)\};", js, re.S)
+    folds = dict(re.findall(r'"(.)":\s*"([^"]*)"', m.group(1))) if m else {}
+    eq("ASCII fold table matches", folds, backend._ASCII_FALLBACKS)
+
+    m = re.search(r"OPT_RESERVED\s*=\s*\[([^\]]*)\]", js)
+    base = set(re.findall(r'"([a-z$]+)"', m.group(1))) if m else set()
+    missing = {r for r in backend._WIN_RESERVED
+               if not r[-1].isdigit() and "$" not in r} - base
+    check("reserved device names covered", not missing, missing)
+
+    # the wire payload must not carry keys the backend would drop
+    m = re.search(r"OPT_WIRE\s*=\s*\[([^\]]*)\]", js)
+    wire = set(re.findall(r'"([a-z_]+)"', m.group(1))) if m else set()
+    unknown = wire - set(backend.OPTION_SPEC)
+    check("every wired option exists server-side", not unknown, unknown)
 
 
 def test_http_contract():
@@ -276,6 +328,7 @@ if __name__ == "__main__":
     test_listing_slug()
     test_safe_zip_name()
     test_options()
+    test_frontend_mirror_in_sync()
     test_pattern_parsing()
     test_render_names()
     test_unique_arc()

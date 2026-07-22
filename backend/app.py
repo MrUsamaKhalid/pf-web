@@ -247,9 +247,11 @@ _ASCII_FALLBACKS = {"ß": "ss", "æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O",
                     "đ": "d", "Đ": "D", "ł": "l", "Ł": "L", "þ": "th",
                     "Þ": "Th", "ð": "d", "Ð": "D", "œ": "oe", "Œ": "OE"}
 
-# Reserved by Win32 with *any* extension — CON.jpg is still the console.
+# Reserved by Win32 with *any* extension — CON.jpg is still the console. The
+# '$' names can never match, because '$' is stripped by the allowlist before
+# _dodge_reserved runs; they are listed for completeness, not defence.
 _WIN_RESERVED = frozenset(
-    ["con", "prn", "aux", "nul", "clock$"]
+    ["con", "prn", "aux", "nul", "clock$", "conin$", "conout$"]
     + [f"com{i}" for i in range(10)] + [f"lpt{i}" for i in range(10)]
 )
 
@@ -352,6 +354,12 @@ def parse_pattern(raw):
     if "/" in literal or "\\" in literal:
         notices.append(f"{label}: folders come from the Folder structure option — "
                        "the slashes were removed.")
+    if fold_ascii(literal) != literal:
+        # Without this the user types an Arabic or Cyrillic prefix, hears
+        # nothing, and every photo comes out as a bare "01.jpg" because the
+        # literal folded away to nothing.
+        notices.append(f"{label}: file names can only use Latin characters, so "
+                       "some of what you typed was removed.")
     if "{index}" not in pattern:
         notices.append(f"{label}: without {{index}} every photo asks for the same "
                        "name, so repeats get -2, -3 and so on.")
@@ -428,6 +436,17 @@ def unique_arc(folder, stem, ext, sha, used):
         head = stem[:budget - len(suffix)].rstrip(" ._-") or "photo"
         arc = f"{prefix}{_dodge_reserved(head + suffix)}.{ext}"
         if arc.lower() not in used:
+            # The budget floor above is a guard, not a guarantee. Assert the
+            # invariant the cap exists to hold, so a future change to SLUG_MAX
+            # or the group names cannot quietly produce a path Explorer refuses
+            # halfway through an extraction.
+            if len(arc) > MAX_ARC_PATH:
+                app.logger.warning("arc path over budget (%d): %s", len(arc), arc)
+                over = len(arc) - MAX_ARC_PATH
+                head = head[:max(1, len(head) - over)].rstrip(" ._-") or "photo"
+                arc = f"{prefix}{_dodge_reserved(head + suffix)}.{ext}"
+                if arc.lower() in used:
+                    continue
             used.add(arc.lower())
             return arc
     # Unreachable — an archive holds at most MAX_PER_GROUP * 2 photos. Kept as
@@ -1209,8 +1228,11 @@ def scrape():
                         zf.writestr("_info.json",
                                     build_manifest_json(url, meta, manifest_entries, opts))
                     else:
-                        zf.writestr("_info.txt",
-                                    build_manifest_txt(url, meta, n_prop, n_comm, n_other, opts))
+                        # BOM so a non-ASCII title survives legacy Notepad and
+                        # Excel's CSV import. Deliberately not on _info.json —
+                        # a BOM breaks strict JSON parsers.
+                        zf.writestr("_info.txt", "﻿" + build_manifest_txt(
+                            url, meta, n_prop, n_comm, n_other, opts))
 
             shutil.rmtree(workdir, ignore_errors=True)
             filename = f"{slug}.zip"
