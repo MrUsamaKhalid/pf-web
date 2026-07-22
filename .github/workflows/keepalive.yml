@@ -1,0 +1,21 @@
+name: keep-backend-warm
+
+# Render's free tier spins the service down after ~15 min of inactivity, which
+# causes a ~60s cold start on the next request. This pings the health endpoint
+# every 10 minutes so the instance stays warm during normal usage hours.
+#
+# Note: GitHub may delay scheduled runs under load, and disables schedules after
+# ~60 days of no repo activity. For guaranteed uptime, also point a free external
+# monitor (e.g. UptimeRobot / cron-job.org) at the same URL, or upgrade Render.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        run: curl -fsS --max-time 60 https://pf-web-d4in.onrender.com/ || true
