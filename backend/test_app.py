@@ -146,6 +146,52 @@ def test_pattern_parsing():
     check("plain ASCII literal is silent", not notes("villa-{index}"), notes("villa-{index}"))
 
 
+def test_agent_name():
+    """{you} is the operator's own name, not the listing agent's.
+
+    Putting the PropertyFinder agent's name on our files means shipping a rival
+    brokerage's staff name with our marketing, so the two must never merge.
+    """
+    print("\nOperator name")
+    opts, notices, _ = backend.normalize_options({"agent_name": "  Usama Khalid  "})
+    eq("trimmed", opts["agent_name"], "Usama Khalid")
+    check("no notice for valid text", not notices, notices)
+
+    opts, notices, _ = backend.normalize_options({"agent_name": 123})
+    eq("non-text ignored", opts["agent_name"], "")
+    check("non-text reported", any("Your name" in n for n in notices), notices)
+
+    opts, _, _ = backend.normalize_options({"agent_name": "x" * 200})
+    check("length capped", len(opts["agent_name"]) <= backend.MAX_AGENT_LEN)
+    opts, _, _ = backend.normalize_options({"agent_name": None})
+    eq("null is blank", opts["agent_name"], "")
+
+    meta = {"title": "T", "reference": "R", "agent": "Rasha Hamid"}
+
+    def render(pattern, name):
+        plan = backend.build_name_plan({"naming": pattern, "agent_name": name}, meta, 2)
+        return backend.render_name(plan, 1)
+
+    eq("name reaches the file", render("{you}-{index}", "Usama Khalid"), "Usama-Khalid-01")
+    eq("accents folded", render("{you}-{index}", "Zoë O'Brien"), "Zoe-O-Brien-01")
+    eq("blank name collapses cleanly", render("{you}-{index}", ""), "01")
+    eq("distinct from the listing agent",
+       render("{you}-{agent}-{index}", "Usama Khalid"), "Usama-Khalid-Rasha-Hamid-01")
+    eq("traversal cannot ride in on the name",
+       render("{you}-{index}", "../../etc"), "etc-01")
+
+    notes = backend.naming_notes("{you}-{index}", meta, {"agent_name": ""})
+    check("blank name warns", any("Your name is blank" in n for n in notes), notes)
+    notes = backend.naming_notes("{you}-{index}", meta, {"agent_name": "Usama"})
+    check("set name is silent", not notes, notes)
+
+    txt = backend.build_manifest_txt("u", meta, 1, 0, 0,
+                                     dict(backend.DEFAULTS, agent_name="Usama Khalid"))
+    check("info file records it verbatim", "Saved by:" in txt and "Usama Khalid" in txt)
+    txt = backend.build_manifest_txt("u", meta, 1, 0, 0, backend.DEFAULTS)
+    check("info file omits it when unset", "Saved by:" not in txt)
+
+
 def test_render_names():
     print("\nName rendering")
     meta = {"title": "Spacious 2BR | Full Marina View — Vacant Now",
@@ -226,6 +272,9 @@ def test_frontend_mirror_in_sync():
                         ("OPT_MIN", backend.OPTION_SPEC["max_images"]["min"])):
         m = re.search(const + r"\s*=\s*(\d+)", js)
         eq(f"{const} matches Python", int(m.group(1)) if m else None, want)
+
+    m = re.search(r"OPT_AGENT_MAX\s*=\s*(\d+)", js)
+    eq("OPT_AGENT_MAX matches Python", int(m.group(1)) if m else None, backend.MAX_AGENT_LEN)
 
     m = re.search(r"OPT_DEFAULT_NAMING\s*=\s*\"([^\"]*)\"", js)
     eq("default pattern matches", m.group(1) if m else None, backend.DEFAULT_NAME_PATTERN)
@@ -330,6 +379,7 @@ if __name__ == "__main__":
     test_options()
     test_frontend_mirror_in_sync()
     test_pattern_parsing()
+    test_agent_name()
     test_render_names()
     test_unique_arc()
     test_http_contract()

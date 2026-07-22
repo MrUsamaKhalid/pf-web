@@ -388,7 +388,11 @@
          it. Inside the panel, controls are 34/11 with an 8px inner radius
          derived by the file's own outer-minus-padding rule (11 - 3),
          the same arithmetic .seg uses at calc(var(--r-control) - var(--s1)). */
-      --h-opt: 44px;  --r-opt: 12px;
+      /* One formation: the settings control is the same height and radius as
+         the URL field, the mode pills and the CTA. Hierarchy comes from fill,
+         not geometry — filled grey is an input, hairline is this, solid black
+         is the CTA. Three readable tiers, one silhouette. */
+      --h-opt: var(--h-control); --r-opt: var(--r-control);
       --h-mini: 34px; --r-mini: 11px; --r-mini-in: 8px;
       /* System stack — downloads nothing. Used on exactly one line, the
          example path: a path set in Inter reads as prose. */
@@ -403,14 +407,19 @@
     .opt {
       margin-top: var(--s2);
       background: transparent;
-      border: 1.5px solid transparent;
+      /* Hairline as an INSET SHADOW, not a border. A real border sits outside
+         the 56px header and makes the collapsed control 59px, which breaks the
+         one-formation rule in a way that is invisible until measured. */
+      border: 0;
+      box-shadow: inset 0 0 0 1.5px var(--line);
       border-radius: var(--r-control);
-      transition: background var(--d) var(--ease), border-color var(--d) var(--ease),
-                  box-shadow var(--d) var(--ease), opacity var(--d) var(--ease);
+      transition: background var(--d) var(--ease), box-shadow var(--d) var(--ease),
+                  opacity var(--d) var(--ease);
     }
     .opt[data-open="1"] {
-      background: #fff; border-color: var(--line);
-      box-shadow: 0 1px 2px rgba(17,17,17,.04), 0 10px 24px -18px rgba(17,17,17,.35);
+      background: #fff;
+      box-shadow: inset 0 0 0 1.5px var(--line),
+                  0 1px 2px rgba(17,17,17,.04), 0 10px 24px -18px rgba(17,17,17,.35);
     }
     /* locked for the duration of a run: the summary must never describe
        settings the job in flight is not using */
@@ -421,7 +430,8 @@
       appearance: none; border: 0; background: transparent; cursor: pointer;
       width: 100%; height: var(--h-opt);
       display: flex; align-items: center; gap: var(--s3);
-      padding: 0 var(--s3); text-align: left;
+      /* matches .field's 16px left inset so the two stack on one gridline */
+      padding: 0 var(--s4); text-align: left;
       border-radius: var(--r-opt);
       font-family: var(--font-body); color: var(--ink);
       transition: background var(--d-fast) var(--ease);
@@ -553,6 +563,24 @@
       font-variant-numeric: tabular-nums;
     }
 
+    /* ---- free-text setting: the .field idiom at the panel's 34px tier ---- */
+    .opt-opt {
+      margin-left: 5px; font-size: 11px; font-weight: 500; color: var(--faint);
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .opt-text {
+      width: 100%; height: var(--h-mini); padding: 0 11px;
+      background: var(--field); border: 1.5px solid transparent; border-radius: var(--r-mini);
+      font-family: var(--font-body); font-size: var(--t-sm); color: var(--ink);
+      transition: background var(--d) var(--ease), border-color var(--d) var(--ease),
+                  box-shadow var(--d) var(--ease);
+    }
+    .opt-text::placeholder { color: var(--faint); }
+    .opt-text:focus {
+      outline: 0; background: #fff; border-color: var(--pf); box-shadow: 0 0 0 3px var(--pf-soft);
+    }
+    .opt-note b { font-weight: 600; color: var(--soft); }
+
     /* ---- naming tokens: the .chip-btn vocabulary, 9px radius ---- */
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .tok {
@@ -566,6 +594,10 @@
     .tok[aria-pressed="true"] { background: var(--pf-soft); color: var(--pf-dark); }
     .tok[aria-pressed="true"]:hover { background: rgba(239,94,78,.2); }
     .tok:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+    /* a token whose source is empty would silently vanish from every file
+       name, so it is unavailable rather than merely off */
+    .tok:disabled { opacity: .4; cursor: not-allowed; }
+    .tok:disabled:hover { background: var(--field); color: var(--muted); }
     .tok.is-locked { background: transparent; color: var(--faint); cursor: default; padding-left: 2px; }
     .tok.is-locked svg { width: 11px; height: 11px; }
 
@@ -775,11 +807,22 @@
                 </div>
 
                 <div class="opt-row opt-row-stack">
+                  <span class="opt-label" id="optLblAgent">Your name <span class="opt-opt">optional</span></span>
+                  <input class="opt-text" id="optAgent" type="text" maxlength="40"
+                         placeholder="e.g. Usama Khalid" name="pf-your-name"
+                         aria-labelledby="optLblAgent" aria-describedby="optAgentHint"
+                         autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"
+                         data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
+                  <p class="opt-note" id="optAgentHint">Fills the <b>you</b> tag below and is written into the info file. Stays on this device.</p>
+                </div>
+
+                <div class="opt-row opt-row-stack">
                   <span class="opt-label" id="optLblNames">File names</span>
                   <span class="chips" id="optNames" role="group" aria-labelledby="optLblNames">
-                    <button class="tok" type="button" data-t="listing" aria-pressed="false">listing</button>
+                    <button class="tok" type="button" data-t="you"     aria-pressed="false">you</button>
+                    <button class="tok" type="button" data-t="listing" aria-pressed="false">title</button>
                     <button class="tok" type="button" data-t="ref"     aria-pressed="false">ref</button>
-                    <button class="tok" type="button" data-t="agent"   aria-pressed="false">agent</button>
+                    <button class="tok" type="button" data-t="agent"   aria-pressed="false">listing agent</button>
                     <button class="tok" type="button" data-t="date"    aria-pressed="false">date</button>
                     <span class="tok is-locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2.5" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>index<span class="sr"> — always included, always last</span></span>
                   </span>
@@ -1383,14 +1426,17 @@
     const OPT_DEFAULTS = {
       community: true, info: true, info_format: "txt", format: "jpeg",
       structure: "grouped", max_images: 80, naming: OPT_DEFAULT_NAMING,
-      batch_delivery: "separate",
+      batch_delivery: "separate", agent_name: "",
     };
+    const OPT_AGENT_MAX = 40;   // MAX_AGENT_LEN in app.py
     /* What actually reaches /scrape. `property` is pinned true and never
        exposed, which makes the backend's only hard error ("select at least
        one gallery") structurally unreachable from this UI — that is why the
        panel has no error state. `batch_delivery` is client-side only. */
-    const OPT_WIRE = ["community", "info", "info_format", "format", "structure", "max_images", "naming"];
-    const OPT_NAME_TOKENS = ["listing", "ref", "agent", "date"];  // canonical order; {index} is always last
+    const OPT_WIRE = ["community", "info", "info_format", "format", "structure", "max_images", "naming", "agent_name"];
+    // canonical order; {index} is always last. {you} leads because that is what
+    // makes a shared drive sort by whoever pulled the photos.
+    const OPT_NAME_TOKENS = ["you", "listing", "ref", "agent", "date"];
     const OPT_MIN = 1, OPT_STEP = 10;
     const OPT_SEG_MAX = 80, OPT_SLUG_MAX = 48;   // MAX_SEGMENT / SLUG_MAX in app.py
     const OPT_SAMPLE = { listing: "park-tower-b", ref: "AP8297-3", agent: "Sara Ahmed" };
@@ -1402,7 +1448,7 @@
     const optCommunity = $("optCommunity"), optInfo = $("optInfo"), optFormat = $("optFormat");
     const optFormatNote = $("optFormatNote"), optStructure = $("optStructure");
     const optMax = $("optMax"), optMaxDec = $("optMaxDec"), optMaxInc = $("optMaxInc");
-    const optNames = $("optNames"), optCapNote = $("optCapNote");
+    const optNames = $("optNames"), optCapNote = $("optCapNote"), optAgent = $("optAgent");
     const optDelivery = $("optDelivery"), optDeliveryRow = $("optDeliveryRow"), optDeliverySep = $("optDeliverySep");
     const optMemo = $("optMemo"), optReset = $("optReset");
     const optCardEl = $("card");
@@ -1488,9 +1534,12 @@
       return OPT_NAME_TOKENS.filter((t) => list.indexOf(t) !== -1)
         .map((t) => "{" + t + "}").concat("{index}").join("-");
     }
-    function optSanitizeNaming(pattern) {
+    function optPatternTokens(pattern) {
       const s = String(pattern || "");
-      return optCanonNaming(OPT_NAME_TOKENS.filter((t) => s.indexOf("{" + t + "}") !== -1));
+      return OPT_NAME_TOKENS.filter((t) => s.indexOf("{" + t + "}") !== -1);
+    }
+    function optSanitizeNaming(pattern) {
+      return optCanonNaming(optPatternTokens(pattern));
     }
     function optTokens() {
       const s = optState.naming;
@@ -1511,7 +1560,11 @@
         o.structure      = optOneOf(raw.structure, ["grouped", "flat", "by_listing"], o.structure);
         o.batch_delivery = optOneOf(raw.batch_delivery, ["separate", "combined"], o.batch_delivery);
         if (raw.max_images != null) o.max_images = optClampMax(raw.max_images);
+        if (typeof raw.agent_name === "string") o.agent_name = raw.agent_name.trim().slice(0, OPT_AGENT_MAX);
         if (typeof raw.naming === "string") o.naming = optSanitizeNaming(raw.naming);
+        // A remembered pattern must not outlive the name that fed it, or every
+        // file silently loses a component the summary still implies.
+        if (!o.agent_name) o.naming = optCanonNaming(optPatternTokens(o.naming).filter((t) => t !== "you"));
       }
       return o;
     }
@@ -1562,6 +1615,7 @@
         listing: fromTitle || optSafeSeg((u && optSlugFromUrl(u)) || OPT_SAMPLE.listing, 40),
         ref: optSafeSeg(optMeta.reference || OPT_SAMPLE.ref, 24),
         agent: optSafeSeg(optMeta.agent || OPT_SAMPLE.agent, 24),
+        you: optSafeSeg(optState.agent_name || "", 24),
         date: optToday(),
       };
     }
@@ -1594,6 +1648,8 @@
       // at 420px drop the clauses still at their default rather than ellipsing
       if (!compact || optState.max_images !== OPT_DEFAULTS.max_images) bits.push("max " + optState.max_images);
       if (mode === "batch" && optState.batch_delivery === "combined") bits.push("one ZIP");
+      // The name is deliberately NOT listed here: the example path underneath
+      // already shows it, and appending it pushed the summary into an ellipsis.
       return bits.join(" · ");
     }
 
@@ -1618,10 +1674,16 @@
       optMaxDec.disabled = optState.max_images <= OPT_MIN;
       optMaxInc.disabled = optState.max_images >= optMaxCeil;
 
+      if (document.activeElement !== optAgent) optAgent.value = optState.agent_name;
       const on = optTokens();
       const toks = optNames.querySelectorAll(".tok[data-t]");
       for (let i = 0; i < toks.length; i++) {
-        toks[i].setAttribute("aria-pressed", String(on.indexOf(toks[i].dataset.t) !== -1));
+        const t = toks[i].dataset.t;
+        toks[i].setAttribute("aria-pressed", String(on.indexOf(t) !== -1));
+        // {you} with no name would vanish from every file while the chip still
+        // claimed it was on
+        toks[i].disabled = t === "you" && !optSafeSeg(optState.agent_name || "", 24);
+        toks[i].title = toks[i].disabled ? "Add your name above to use this" : "";
       }
       /* Honest about deploy skew: warn whenever a custom pattern is set and we
          have NOT positively confirmed the server supports it — including when
@@ -1737,9 +1799,19 @@
       else if (e.key === "Enter") { e.preventDefault(); optSetMax(optMax.value); optMax.blur(); }
     });
 
+    optAgent.addEventListener("input", () => {
+      optState.agent_name = optAgent.value.trim().slice(0, OPT_AGENT_MAX);
+      // clearing the name must also drop {you}, or the pattern keeps a token
+      // that can no longer resolve
+      if (!optState.agent_name && optTokens().indexOf("you") !== -1) {
+        optState.naming = optCanonNaming(optTokens().filter((t) => t !== "you"));
+      }
+      optSave(); optRender();
+    });
+
     optNames.addEventListener("click", (e) => {
       const b = e.target.closest && e.target.closest(".tok[data-t]");
-      if (!b) return;
+      if (!b || b.disabled) return;
       const on = optTokens(), t = b.dataset.t, has = on.indexOf(t) !== -1;
       optSet("naming", optCanonNaming(OPT_NAME_TOKENS.filter((k) => (k === t ? !has : on.indexOf(k) !== -1))));
     });
