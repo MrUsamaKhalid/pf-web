@@ -299,8 +299,21 @@
       background: #fff;
       transition: border-color var(--d) var(--ease);
     }
-    .row.ok { border-color: rgba(31,157,87,.45); }
-    .row.bad { border-color: rgba(192,57,43,.45); }
+    .row.is-done { border-color: rgba(31,157,87,.45); }
+    .row.is-failed, .row.is-stopped { border-color: rgba(192,57,43,.45); }
+    .row.is-running { border-color: var(--pf); box-shadow: 0 0 0 3px var(--pf-soft); }
+    .row.is-queued { opacity: .72; }
+    .row-head { display: flex; align-items: baseline; gap: var(--s2); }
+    .row-head .row-title { flex: 1; min-width: 0; margin-bottom: 0; }
+    /* status is a word, not a colour: colour alone fails for the ~8% of men
+       with red/green deficiency, and these rows are read at a glance */
+    .row-pill {
+      flex: none; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+      text-transform: uppercase; color: var(--faint);
+    }
+    .row.is-done .row-pill { color: var(--ok); }
+    .row.is-failed .row-pill, .row.is-stopped .row-pill { color: var(--err); }
+    .row.is-running .row-pill { color: var(--pf-dark); }
     .row-title { font-weight: 600; font-size: var(--t-sm); margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .row-meta { color: var(--muted); font-size: var(--t-xs); margin: 0; }
     .row-actions { display: flex; gap: var(--s2); margin-top: var(--s2); }
@@ -339,6 +352,9 @@
     .zip-all { width: 100%; height: var(--h-control); margin-top: var(--s3); padding: 0 var(--s5); font-family: var(--font-display); font-weight: 600; font-size: var(--t-md); color: var(--ink); background: #fff; border: 1.5px solid var(--line); border-radius: var(--r-control); cursor: pointer; transition: border-color var(--d) var(--ease), background var(--d) var(--ease), transform var(--d-fast) var(--ease-spring); }
     .zip-all:hover { border-color: var(--pf); background: var(--pf-soft); color: var(--pf-dark); transform: translateY(-2px); }
     .zip-all:active { transform: translateY(0) scale(.98); }
+    /* Stop keeps the CTA's mass but drops the coral "go" wipe and the download
+       glyph, so the button never invites the action it is cancelling. */
+    .cta.is-stop .fill, .cta.is-stop .shine, .cta.is-stop .ico { display: none; }
 
     /* ============================ server chip + signature ============================ */
     .server {
@@ -866,6 +882,7 @@
           <div id="bar" class="bar" hidden><span id="barFill"></span></div>
         </div>
 
+        <button id="retryFailed" class="zip-all" type="button" hidden>Try failed listings again</button>
         <button id="zipAll" class="zip-all" type="button" hidden>Download all as one ZIP</button>
 
         <div id="status" class="status" aria-live="polite"></div>
@@ -895,7 +912,7 @@
     const goBtn = $("go"), goLabel = $("goLabel"), pasteBtn = $("paste");
     const resultsEl = $("results"), logEl = $("log"), rowsEl = $("rows");
     const barWrap = $("bar"), barFill = $("barFill");
-    const statusEl = $("status"), zipAllBtn = $("zipAll");
+    const statusEl = $("status"), zipAllBtn = $("zipAll"), retryBtn = $("retryFailed");
     const segSingle = $("segSingle"), segBatch = $("segBatch");
     const paneSingle = $("paneSingle"), paneBatch = $("paneBatch");
 
@@ -956,7 +973,7 @@
       rowsEl.hidden = kind !== "rows";
       barWrap.hidden = true; barFill.style.width = "0%";
       resultsEl.hidden = false;
-      zipAllBtn.hidden = true;
+      zipAllBtn.hidden = true; retryBtn.hidden = true;
     }
     function finishLine() {
       if (activeLine) { activeLine.classList.remove("on"); activeLine.querySelector(".ico").innerHTML = CHECK; }
@@ -1146,149 +1163,301 @@
       counter.textContent = bits.join(" · ");
     }
 
-    async function runBatch() {
-      const { list } = parseLinks();
-      if (!list.length) { setStatus("Paste at least one PropertyFinder link.", "bad"); urlsInput.focus(); return; }
+    /* ------------------------------ batch queue ------------------------------
+       A batch is a queue of items with an explicit status, not a for-loop over
+       an array. That is what makes stopping, retrying just the failures, and
+       dropping a link you pasted by mistake possible at all — in a loop, a
+       failed listing is gone until you re-run the whole thing.
+       ------------------------------------------------------------------- */
+    const MAX_COMBINE = 200 * 1024 * 1024;   // combining pulls archives into memory
+    const ITEM_TIMEOUT = 165000;
+    const BUSY_WAIT = 10;                    // seconds, matched to the server's Retry-After
 
-      busy = true; goBtn.disabled = true; setStatus("", "");
-      optLock(true);
-      // Capture the delivery choice for the whole run: the panel is locked, but
-      // reading it once makes the run independent of anything that follows.
-      const runCombine = optCombineBatch();
-      resetResults("rows");
-      const collected = [];
-      let ok = 0, failed = 0;
+    let queue = [];
+    let queueBusy = false, queueStop = false, queueAbort = null;
+    let queueNames = Object.create(null);
 
-      // Two units in the same tower often share a title, so disambiguate with
-      // the agency reference — an agent recognises "AP8297-3", not "(2)".
-      const usedNames = Object.create(null);
-      const uniqueName = (stem, ref) => {
-        const base = stem || "propertyfinder-photos";
-        let name = base;
-        if (usedNames[name.toLowerCase()] && ref) name = base + "-" + cleanStem(ref);
-        let k = 1;
-        while (usedNames[name.toLowerCase()]) { k++; name = base + " (" + k + ")"; }
-        usedNames[name.toLowerCase()] = 1;
-        return name + ".zip";
-      };
+    /* Two units in one tower often share a title, so disambiguate with the
+       agency reference — an agent recognises "AP8297-3", not "(2)". */
+    function queueName(stem, ref) {
+      const base = stem || "propertyfinder-photos";
+      let name = base;
+      if (queueNames[name.toLowerCase()] && ref) name = base + "-" + cleanStem(ref);
+      let k = 1;
+      while (queueNames[name.toLowerCase()]) { k++; name = base + " (" + k + ")"; }
+      queueNames[name.toLowerCase()] = 1;
+      return name + ".zip";
+    }
 
-      try {
-        for (let i = 0; i < list.length; i++) {
-          const url = list[i];
-          const li = document.createElement("li"); li.className = "row";
-          const t = document.createElement("p"); t.className = "row-title"; t.textContent = url;
-          const m = document.createElement("p"); m.className = "row-meta"; m.textContent = "Queued…";
-          const acts = document.createElement("div"); acts.className = "row-actions";
-          li.append(t, m, acts); rowsEl.appendChild(li);
-          setStatus("Processing " + (i + 1) + " of " + list.length + "…", "");
+    const OPEN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" '
+      + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M14 4h6v6"/><path d="M20 4l-8 8"/>'
+      + '<path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
 
-          let listingMeta = {};
-          const attempt = () => {
-            const ctrl = new AbortController();
-            const timer = setTimeout(() => ctrl.abort(), 165000);
-            return new Promise((resolve) => {
-              let settled = false;
-              const settle = (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
-              streamScrape(url, {
-                log: (msg) => { m.textContent = msg; if (msg.indexOf("Listing: ") === 0) t.textContent = msg.slice(9); },
-                meta: (msg) => { listingMeta = msg.listing || {}; optAdoptMeta(msg); },
-                progress: (d, total) => { m.textContent = "Downloading " + d + "/" + total; },
-                error: (msg, code) => settle({ error: msg, code: code }),
-                done: (msg) => settle({ done: msg }),
-              }, ctrl.signal);
-            });
-          };
+    function queueBuild(list) {
+      queue = []; queueNames = Object.create(null);
+      rowsEl.innerHTML = "";
+      list.forEach((url, i) => {
+        const li = document.createElement("li");
+        li.className = "row";
+        const head = document.createElement("div"); head.className = "row-head";
+        const t = document.createElement("p"); t.className = "row-title"; t.textContent = url;
+        const pill = document.createElement("span"); pill.className = "row-pill";
+        head.append(t, pill);
+        const m = document.createElement("p"); m.className = "row-meta";
+        const acts = document.createElement("div"); acts.className = "row-actions";
+        li.append(head, m, acts);
+        rowsEl.appendChild(li);
+        queue.push({ id: i, url: url, status: "queued", listing: {}, entry: null,
+                     note: "Waiting", el: li, t: t, m: m, pill: pill, acts: acts });
+      });
+      queue.forEach(queueRenderRow);
+      queueRenderFooter();
+    }
 
-          let result = await attempt();
-          // One job at a time can collide when two people run batches at once;
-          // a busy server is a wait, not a failure.
-          if (result.error && result.code === "busy") {
-            for (let s = 10; s > 0; s--) {
-              m.textContent = "Server busy — retrying in " + s + "s…";
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-            result = await attempt();
-          }
+    const QUEUE_PILL = { queued: "Queued", running: "Working", done: "Done",
+                         failed: "Failed", stopped: "Stopped" };
 
-          if (result.done && (result.done.count || 0) > 0) {
-            const msg = result.done;
-            // Prefer the server's slug so a batch names files exactly the way a
-            // single download does — one listing must not get two spellings.
-            const stem = (msg.filename ? msg.filename.replace(/\.zip$/i, "") : "")
-              || cleanStem(msg.title) || "propertyfinder-photos";
-            const name = uniqueName(stem, listingMeta.reference);
-            let entry = null;
-            if (msg.download) entry = { name, path: msg.download, bytes: null, size: msg.bytes || 0 };
-            else if (msg.zip) { try { entry = { name, path: null, bytes: b64ToBytes(msg.zip), size: msg.bytes || 0 }; } catch (e) {} }
-            if (entry) {
-              collected.push(entry);
-              const dl = document.createElement("button");
-              dl.className = "chip-btn"; dl.type = "button"; dl.textContent = "Download";
-              dl.title = entry.name;
-              dl.addEventListener("click", () => entry.path ? saveFromUrl(entry.path, entry.name) : saveBytes(entry.bytes, entry.name));
-              acts.appendChild(dl);
-            }
-            const open = document.createElement("a");
-            open.className = "chip-btn quiet"; open.href = url; open.target = "_blank"; open.rel = "noopener";
-            open.innerHTML = '<span>Open listing</span>'
-              + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" '
-              + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-              + '<path d="M14 4h6v6"/><path d="M20 4l-8 8"/>'
-              + '<path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
-            acts.appendChild(open);
-            t.textContent = msg.title || url;
-            m.textContent = (msg.property || 0) + " property · " + (msg.community || 0) + " community · " + (msg.count || 0) + " photos";
-            li.classList.add("ok"); ok++;
-          } else if (result.done) {
-            m.textContent = "No photos found on this listing"; li.classList.add("bad"); failed++;
-          } else {
-            m.textContent = result.error || "Failed"; li.classList.add("bad"); failed++;
-          }
-          rowsEl.scrollTop = rowsEl.scrollHeight;
-        }
-      } finally {
-        busy = false; goBtn.disabled = false; optLock(false);
+    function queueRenderRow(item) {
+      item.el.className = "row is-" + item.status;
+      item.pill.textContent = QUEUE_PILL[item.status] || item.status;
+      item.m.textContent = item.note;
+      item.acts.innerHTML = "";
+
+      if (item.status === "done" && item.entry) {
+        const dl = document.createElement("button");
+        dl.className = "chip-btn"; dl.type = "button"; dl.textContent = "Download";
+        dl.title = item.entry.name;
+        dl.addEventListener("click", () => item.entry.path
+          ? saveFromUrl(item.entry.path, item.entry.name)
+          : saveBytes(item.entry.bytes, item.entry.name));
+        item.acts.appendChild(dl);
       }
-
-      const hosted = collected.some((c) => c.path);
-      setStatus("Done — " + ok + " of " + list.length + " downloaded"
-        + (failed ? " · " + failed + " failed" : "")
-        + (hosted ? " · links stay live for 10 minutes" : ""), ok ? "ok" : "bad");
-
-      // Combining pulls every archive back into memory, so only offer it when
-      // the total is small enough to survive it.
-      const MAX_COMBINE = 200 * 1024 * 1024;
-      const totalBytes = collected.reduce((n, c) => n + (c.size || 0), 0);
-      if (runCombine && collected.length > 1 && window.fflate && totalBytes < MAX_COMBINE) {
-        zipAllBtn.hidden = false;
-        const label = "Download all " + collected.length + " as one ZIP";
-        zipAllBtn.textContent = label;
-        zipAllBtn.onclick = async () => {
-          zipAllBtn.disabled = true;
-          zipAllBtn.textContent = "Building combined ZIP…";
-          try {
-            const files = {}; const used = Object.create(null);
-            for (const c of collected) {
-              let bytes = c.bytes;
-              if (!bytes && c.path) {
-                const r = await fetch(BACKEND_URL + c.path, { cache: "no-store" });
-                if (!r.ok) throw new Error("expired");
-                bytes = new Uint8Array(await r.arrayBuffer());
-              }
-              let n = c.name, k = 1;
-              while (used[n]) { k++; n = c.name.replace(/\.zip$/, "") + " (" + k + ").zip"; }
-              used[n] = 1; files[n] = bytes;
-            }
-            saveBytes(window.fflate.zipSync(files, { level: 0 }),
-                      "propertyfinder-batch-" + collected.length + ".zip");
-          } catch (e) {
-            setStatus("Couldn't build the combined ZIP — use the per-row Download buttons.", "bad");
-          } finally {
-            zipAllBtn.disabled = false; zipAllBtn.textContent = label;
-          }
-        };
+      if (item.status === "failed" || item.status === "stopped") {
+        const again = document.createElement("button");
+        again.className = "chip-btn"; again.type = "button"; again.textContent = "Try again";
+        again.disabled = queueBusy;
+        again.addEventListener("click", () => queueRetry([item]));
+        item.acts.appendChild(again);
+      }
+      // Deliberately available mid-run: dropping a link you pasted by mistake
+      // before the queue reaches it is the whole point of a queue. The running
+      // item is not "queued", so it can never be pulled out from under itself.
+      if (item.status === "queued") {
+        const drop = document.createElement("button");
+        drop.className = "chip-btn quiet"; drop.type = "button"; drop.textContent = "Remove";
+        drop.addEventListener("click", () => {
+          queue = queue.filter((q) => q !== item);
+          item.el.remove();
+          queueRenderFooter();
+        });
+        item.acts.appendChild(drop);
+      }
+      if (item.status !== "running") {
+        const open = document.createElement("a");
+        open.className = "chip-btn quiet";
+        open.href = item.url; open.target = "_blank"; open.rel = "noopener";
+        open.innerHTML = "<span>Open listing</span>" + OPEN_SVG;
+        item.acts.appendChild(open);
       }
     }
+
+    function queueCount(status) { return queue.filter((q) => q.status === status).length; }
+
+    function queueRenderFooter() {
+      const done = queueCount("done"), failed = queueCount("failed");
+      const stopped = queueCount("stopped"), left = queueCount("queued");
+      const total = queue.length;
+
+      if (queueBusy) {
+        barWrap.hidden = false;
+        barFill.style.width = (total ? Math.round((done + failed + stopped) / total * 100) : 0) + "%";
+        setStatus("Working through " + (done + failed + stopped + 1) + " of " + total
+          + (failed ? " · " + failed + " failed" : ""), "");
+      } else if (total) {
+        barWrap.hidden = false;
+        barFill.style.width = (total ? Math.round((done + failed + stopped) / total * 100) : 0) + "%";
+        const bits = [done + " of " + total + " downloaded"];
+        if (failed) bits.push(failed + " failed");
+        if (stopped) bits.push(stopped + " stopped");
+        if (left) bits.push(left + " still queued");
+        if (queue.some((q) => q.entry && q.entry.path)) bits.push("links stay live for 10 minutes");
+        // Stopping on purpose is not an error, so it must not be dressed as one.
+        const kind = done ? "ok" : (failed ? "bad" : "");
+        setStatus((done ? "Done — " : "") + bits.join(" · "), kind);
+      }
+
+      const retryable = queue.filter((q) => q.status === "failed" || q.status === "stopped");
+      retryBtn.hidden = queueBusy || !retryable.length;
+      const noun = retryable.length === 1 ? "listing" : "listings";
+      retryBtn.textContent = "Try " + retryable.length + " "
+        + (failed && stopped ? "unfinished " : failed ? "failed " : "stopped ")
+        + noun + " again";
+
+      const collected = queue.filter((q) => q.status === "done" && q.entry).map((q) => q.entry);
+      const bytes = collected.reduce((n, c) => n + (c.size || 0), 0);
+      const canCombine = !queueBusy && optCombineBatch() && collected.length > 1
+        && window.fflate && bytes < MAX_COMBINE;
+      zipAllBtn.hidden = !canCombine;
+      if (canCombine) {
+        const label = "Download all " + collected.length + " as one ZIP";
+        zipAllBtn.textContent = label;
+        zipAllBtn.onclick = () => queueCombine(collected, label);
+      }
+    }
+
+    async function queueCombine(collected, label) {
+      zipAllBtn.disabled = true;
+      zipAllBtn.textContent = "Building combined ZIP…";
+      try {
+        const files = {}; const used = Object.create(null);
+        for (const c of collected) {
+          let bytes = c.bytes;
+          if (!bytes && c.path) {
+            const r = await fetch(BACKEND_URL + c.path, { cache: "no-store" });
+            if (!r.ok) throw new Error("expired");
+            bytes = new Uint8Array(await r.arrayBuffer());
+          }
+          let n = c.name, k = 1;
+          while (used[n]) { k++; n = c.name.replace(/\.zip$/, "") + " (" + k + ").zip"; }
+          used[n] = 1; files[n] = bytes;
+        }
+        saveBytes(window.fflate.zipSync(files, { level: 0 }),
+                  "propertyfinder-batch-" + collected.length + ".zip");
+      } catch (e) {
+        setStatus("Couldn't build the combined ZIP — use the per-row Download buttons.", "bad");
+      } finally {
+        zipAllBtn.disabled = false; zipAllBtn.textContent = label;
+      }
+    }
+
+    /* One listing. Resolves {done} or {error, code}; never throws. */
+    function queueAttempt(item) {
+      const ctrl = new AbortController();
+      queueAbort = ctrl;
+      const timer = setTimeout(() => ctrl.abort(), ITEM_TIMEOUT);
+      return new Promise((resolve) => {
+        let settled = false;
+        const settle = (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
+        streamScrape(item.url, {
+          log: (msg) => {
+            item.note = msg; item.m.textContent = msg;
+            if (msg.indexOf("Listing: ") === 0) item.t.textContent = msg.slice(9);
+          },
+          notice: (msg) => { item.note = msg; item.m.textContent = msg; },
+          meta: (msg) => { item.listing = msg.listing || {}; optAdoptMeta(msg); },
+          progress: (d, total) => {
+            item.note = "Downloading " + d + "/" + total;
+            item.m.textContent = item.note;
+          },
+          error: (msg, code) => settle({ error: msg, code: code }),
+          done: (msg) => settle({ done: msg }),
+        }, ctrl.signal);
+      });
+    }
+
+    async function queueRunOne(item) {
+      item.status = "running"; item.note = "Starting…";
+      queueRenderRow(item); queueRenderFooter();
+      item.el.scrollIntoView({ block: "nearest" });
+
+      let result = await queueAttempt(item);
+      // One job at a time server-side, so two people batching at once collide.
+      // A busy server is a wait, not a failure.
+      if (result.error && result.code === "busy" && !queueStop) {
+        for (let s = BUSY_WAIT; s > 0 && !queueStop; s--) {
+          item.note = "Server busy — trying again in " + s + "s…";
+          item.m.textContent = item.note;
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        if (!queueStop) result = await queueAttempt(item);
+      }
+      queueAbort = null;
+
+      if (queueStop && !result.done) {
+        item.status = "stopped"; item.note = "Stopped before it finished";
+        return;
+      }
+      if (result.done && (result.done.count || 0) > 0) {
+        const msg = result.done;
+        // Prefer the server's slug so a batch names files exactly the way a
+        // single download does — one listing must not get two spellings.
+        const stem = (msg.filename ? msg.filename.replace(/\.zip$/i, "") : "")
+          || cleanStem(msg.title) || "propertyfinder-photos";
+        const name = queueName(stem, item.listing.reference);
+        if (msg.download) item.entry = { name: name, path: msg.download, bytes: null, size: msg.bytes || 0 };
+        else if (msg.zip) { try { item.entry = { name: name, path: null, bytes: b64ToBytes(msg.zip), size: msg.bytes || 0 }; } catch (e) { item.entry = null; } }
+        item.t.textContent = msg.title || item.url;
+        item.status = "done";
+        item.note = (msg.property || 0) + " property · " + (msg.community || 0)
+          + " community · " + (msg.count || 0) + " photos"
+          + (msg.truncated ? " (partial)" : "");
+      } else if (result.done) {
+        item.status = "failed"; item.note = "No photos found on this listing";
+      } else {
+        item.status = "failed"; item.note = result.error || "Failed";
+      }
+    }
+
+    async function queueRun() {
+      if (queueBusy) return;
+      queueBusy = true; queueStop = false;
+      busy = true; optLock(true); setStatus("", "");
+      goLabel.textContent = "Stop";
+      goBtn.classList.add("is-stop");
+      resultsEl.hidden = false; rowsEl.hidden = false; logEl.hidden = true;
+      queue.forEach(queueRenderRow);
+
+      try {
+        for (;;) {
+          const next = queue.find((q) => q.status === "queued");
+          if (!next || queueStop) break;
+          await queueRunOne(next);
+          queueRenderRow(next);
+          queueRenderFooter();
+        }
+        if (queueStop) {
+          queue.forEach((q) => {
+            if (q.status === "queued") { q.status = "stopped"; q.note = "Stopped before it started"; }
+          });
+        }
+      } finally {
+        queueBusy = false; busy = false; queueAbort = null;
+        goLabel.textContent = mode === "single" ? "Download photos" : "Process links";
+        goBtn.classList.remove("is-stop");
+        goBtn.disabled = false;
+        optLock(false);
+        queue.forEach(queueRenderRow);
+        queueRenderFooter();
+      }
+    }
+
+    function queueHalt() {
+      if (!queueBusy) return;
+      queueStop = true;
+      setStatus("Stopping…", "");
+      if (queueAbort) { try { queueAbort.abort(); } catch (e) {} }
+    }
+
+    function queueRetry(items) {
+      if (queueBusy) return;
+      items.forEach((i) => { i.status = "queued"; i.note = "Waiting"; queueRenderRow(i); });
+      queueRun();
+    }
+
+    async function runBatch() {
+      const parsed = parseLinks();
+      if (!parsed.list.length) {
+        setStatus("Paste at least one PropertyFinder link.", "bad"); urlsInput.focus(); return;
+      }
+      resetResults("rows");
+      queueBuild(parsed.list);
+      await queueRun();
+    }
+
+    retryBtn.addEventListener("click", () => {
+      queueRetry(queue.filter((q) => q.status === "failed" || q.status === "stopped"));
+    });
 
     /* ------------------------------ mode ------------------------------ */
     function setMode(next) {
@@ -1300,14 +1469,20 @@
       paneSingle.hidden = !single;
       paneBatch.hidden = single;
       goLabel.textContent = single ? "Download photos" : "Process links";
-      resultsEl.hidden = true; zipAllBtn.hidden = true; setStatus("", "");
+      resultsEl.hidden = true; zipAllBtn.hidden = true; retryBtn.hidden = true; setStatus("", "");
       optSyncMode();
       (single ? urlInput : urlsInput).focus({ preventScroll: true });
     }
 
     segSingle.addEventListener("click", () => setMode("single"));
     segBatch.addEventListener("click", () => setMode("batch"));
-    goBtn.addEventListener("click", () => { if (!busy) (mode === "single" ? runSingle() : runBatch()); });
+    // During a batch the CTA is the stop control — there is nowhere else to put
+    // it that a user would look, and a run with no way out is worse.
+    goBtn.addEventListener("click", () => {
+      if (queueBusy) { queueHalt(); return; }
+      if (busy) return;
+      (mode === "single" ? runSingle() : runBatch());
+    });
     urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter" && !busy) runSingle(); });
     urlsInput.addEventListener("input", updateCounter);
     pasteBtn.addEventListener("click", async () => {
