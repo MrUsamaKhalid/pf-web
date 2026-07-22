@@ -34,6 +34,7 @@ import tempfile
 import threading
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, quote
 
 from flask import Flask, request, jsonify, Response
@@ -117,6 +118,29 @@ NEXT_DATA_RE = re.compile(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>',
 HOST_RE = re.compile(r"(?:[a-z0-9-]+\.)*propertyfinder\.(?:ae|com|qa|bh|sa|eg|lb)")
 
 # --------------------------------------------------------------------------- #
+# File naming
+# --------------------------------------------------------------------------- #
+DEFAULT_NAME_PATTERN = "{index}"
+NAME_TOKENS = ("listing", "ref", "agent", "index", "date")
+MAX_PATTERN_LEN = 120
+
+# Windows Explorer still unpacks ZIPs through the legacy 260-char MAX_PATH, and
+# "Extract All" creates a folder named after the archive before writing a single
+# file. Capping the path *inside* the archive at 120 leaves ~140 for a
+# destination like "C:\Users\usama\OneDrive - Sykon Properties\Downloads\<zip>\".
+MAX_ARC_PATH = 120
+MAX_SEGMENT = 80        # NTFS/APFS/ext4 all stop at 255; 80 keeps names legible
+SLUG_MAX = 48           # the by_listing folder AND the .zip file name
+TOKEN_MAX = {"listing": 40, "ref": 24, "agent": 24, "date": 10, "index": 8}
+
+# The UAE has never observed DST and has been UTC+4 since 1972, so a fixed
+# offset is exactly as correct as zoneinfo here — and it does not depend on the
+# container image shipping tzdata, which the slim Python images do not. Render
+# runs UTC, so without this a download at 02:00 Dubai time is stamped yesterday.
+DUBAI_TZ = timezone(timedelta(hours=4))
+
+
+# --------------------------------------------------------------------------- #
 # Options
 # --------------------------------------------------------------------------- #
 OPTION_SPEC = {
@@ -133,6 +157,12 @@ OPTION_SPEC = {
                     "label": "Folder structure"},
     "max_images":  {"type": "int", "default": 80, "min": 1, "max": MAX_PER_GROUP,
                     "label": "Max photos per gallery"},
+    # Published verbatim by /capabilities, so the tokens and the length cap
+    # reach the UI without a second endpoint to keep in sync.
+    "naming":      {"type": "pattern", "default": DEFAULT_NAME_PATTERN,
+                    "label": "Photo file names",
+                    "tokens": list(NAME_TOKENS), "max_len": MAX_PATTERN_LEN,
+                    "note": "The extension is added from the image itself."},
     # Present in the schema, deliberately not offered in the UI: the agency
     # watermark is burned into the master PropertyFinder stores, so there is no
     # honest "remove" to implement.
@@ -179,6 +209,11 @@ def normalize_options(raw):
                 notices.append(f"{spec['label']}: expected a number, using default.")
                 continue
             opts[key] = max(spec["min"], min(spec["max"], n))
+        elif spec["type"] == "pattern":
+            # A naming pattern is never unrunnable — anything we cannot honour
+            # falls back to the default and says so.
+            opts[key], notes = parse_pattern(value)
+            notices.extend(notes)
 
     if not opts["property"] and not opts["community"]:
         return opts, notices, "Select at least one gallery — property or community."
@@ -199,24 +234,209 @@ def host_ok(url):
         return False
 
 
-_WIN_RESERVED = {
-    "con", "prn", "aux", "nul", "clock$",
-    *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10)),
-}
+_TOKEN_RE = re.compile(r"\{([A-Za-z_]{0,16})\}")
+# Illegal on Win32, plus ':' (the drive marker in "C:" and the classic Finder
+# separator), both path separators, and all whitespace — this app speaks
+# hyphen-case, and spaces round-trip badly through URLs and shells.
+_UNSAFE_RE = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*\s]+')
+_KEEP_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+# NFKD's blind spots: these have no decomposition, so without the table they
+# vanish silently and "Straße" becomes "Strae".
+_ASCII_FALLBACKS = {"ß": "ss", "æ": "ae", "Æ": "AE", "ø": "o", "Ø": "O",
+                    "đ": "d", "Đ": "D", "ł": "l", "Ł": "L", "þ": "th",
+                    "Þ": "Th", "ð": "d", "Ð": "D", "œ": "oe", "Œ": "OE"}
+
+# Reserved by Win32 with *any* extension — CON.jpg is still the console.
+_WIN_RESERVED = frozenset(
+    ["con", "prn", "aux", "nul", "clock$"]
+    + [f"com{i}" for i in range(10)] + [f"lpt{i}" for i in range(10)]
+)
 
 
-def slugify(text, max_len=70):
-    """Filename-safe slug from arbitrary text.
+def fold_ascii(value):
+    """Latin accents to ASCII; everything else non-ASCII dropped.
 
-    Listing titles are agent-authored and full of pipes, emoji and Arabic, so
-    everything outside [a-z0-9-] goes. Non-Latin titles reduce to empty here;
-    callers fall back to the URL slug rather than shipping a blank name.
+    Chosen over preserving UTF-8: a ZIP only carries non-ASCII member names if
+    the reader honours general-purpose bit 11, and the tooling a brokerage
+    actually uses (older Explorer, portal bulk-uploaders, FTP clients) often
+    does not — the failure mode is silent mojibake across forty photos.
+    Transliterating Arabic would need a table nobody agrees on and produces
+    "shq fkhr fy dby", unreadable to Arabic and English speakers alike. Nothing
+    is lost: the untouched title stays in _info.txt and the meta frame.
     """
-    s = unicodedata.normalize("NFKD", text or "")
-    s = s.encode("ascii", "ignore").decode("ascii").lower()
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    s = re.sub(r"-{2,}", "-", s).strip("-")
-    return s[:max_len].strip("-")
+    s = "".join(_ASCII_FALLBACKS.get(c, c) for c in str(value))
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return s.encode("ascii", "ignore").decode("ascii")
+
+
+def _dodge_reserved(stem):
+    """CON -> CON_. Suffixed rather than prefixed so sort order survives.
+
+    Runs after the fold on purpose: NFKD turns COM² into COM2, a device name the
+    raw string was hiding. It runs again after truncation, because clipping
+    "console" to fit a path budget can re-expose "con".
+    """
+    if stem.split(".", 1)[0].lower() in _WIN_RESERVED:
+        return stem + "_"
+    return stem
+
+
+def safe_segment(value, max_len=MAX_SEGMENT):
+    """One path segment safe on NTFS, APFS, ext4 and inside a ZIP.
+
+    Every rule is load-bearing: control characters break archive tooling,
+    <>:"/\\|?* are rejected by Win32, ".." is the parent directory everywhere, a
+    leading "." hides the file on macOS/Linux, a leading "-" reads as a flag to
+    CLI tools, and a trailing "." or " " is silently eaten by Win32 — which
+    would let two names converge into one file *after* extraction, behind the
+    back of the collision check.
+    """
+    s = fold_ascii(value)
+    s = _UNSAFE_RE.sub("-", s)
+    s = _KEEP_RE.sub("-", s)
+    s = re.sub(r"\.{2,}", ".", s)
+    s = re.sub(r"-{2,}", "-", s)
+    s = s.strip(" ._-")
+    if len(s) > max_len:
+        s = s[:max_len].rstrip(" ._-")
+    return _dodge_reserved(s)
+
+
+def slugify(text, max_len=SLUG_MAX):
+    """Lower-case hyphen slug for the archive name and by_listing folder.
+
+    Deliberately lower-cased where safe_segment preserves case: this is the name
+    that lands in someone's Downloads folder, while photo names keep their case
+    because {ref} is the string agents search their CRM for ("AP8297-3").
+    """
+    # Dodge last: stripping "._-" would otherwise undo safe_segment's guard and
+    # turn "CON_" straight back into the reserved "con".
+    return _dodge_reserved(safe_segment(text, max_len).lower().strip("._-"))
+
+
+def parse_pattern(raw):
+    """Validate a naming pattern. Returns (pattern, notices).
+
+    Anything we cannot honour falls back to the default instead of guessing: a
+    half-understood pattern names forty files wrong, and the user does not find
+    out until the photos are already on a portal.
+    """
+    label = OPTION_SPEC["naming"]["label"]
+    fallback = f"using '{DEFAULT_NAME_PATTERN}'."
+    if not isinstance(raw, str):
+        return DEFAULT_NAME_PATTERN, [f"{label}: expected text, {fallback}"]
+
+    # {Index} is a typo, not an error — normalise case before validating.
+    pattern = _TOKEN_RE.sub(lambda m: "{" + m.group(1).lower() + "}", raw.strip())
+    if not pattern:
+        # an empty box means "I cleared it", not "I made a mistake"
+        return DEFAULT_NAME_PATTERN, []
+    if len(pattern) > MAX_PATTERN_LEN:
+        return DEFAULT_NAME_PATTERN, [
+            f"{label}: longer than {MAX_PATTERN_LEN} characters, {fallback}"]
+
+    unknown = sorted({m.group(1) for m in _TOKEN_RE.finditer(pattern)} - set(NAME_TOKENS))
+    if unknown:
+        listed = ", ".join("{" + u + "}" for u in unknown)
+        return DEFAULT_NAME_PATTERN, [f"{label}: {listed} isn't a token, {fallback}"]
+
+    literal = _TOKEN_RE.sub("", pattern)
+    # a stray brace means a mistyped token; expanding the rest would bake
+    # "{inde" into every file name
+    if "{" in literal or "}" in literal:
+        return DEFAULT_NAME_PATTERN, [f"{label}: unmatched {{ or }}, {fallback}"]
+
+    notices = []
+    if "/" in literal or "\\" in literal:
+        notices.append(f"{label}: folders come from the Folder structure option — "
+                       "the slashes were removed.")
+    if "{index}" not in pattern:
+        notices.append(f"{label}: without {{index}} every photo asks for the same "
+                       "name, so repeats get -2, -3 and so on.")
+    return pattern, notices
+
+
+def naming_notes(pattern, meta):
+    """One notice per job for tokens this listing cannot fill — said once."""
+    missing = []
+    for token, key, human in (("{listing}", "title", "a usable title"),
+                              ("{ref}", "reference", "an agency reference"),
+                              ("{agent}", "agent", "an agent name")):
+        if token in pattern and not safe_segment(meta.get(key) or "",
+                                                 TOKEN_MAX[token[1:-1]]):
+            missing.append((token, human))
+    if not missing:
+        return []
+    return [f"This listing has no {' or '.join(h for _, h in missing)} — "
+            f"{', '.join(t for t, _ in missing)} was left out of the file names."]
+
+
+def build_name_plan(opts, meta, pad):
+    """Freeze everything that does not vary per photo.
+
+    {date} is stamped once for the whole archive: a job starting at 23:59:50 and
+    running its full deadline must not put two dates in one folder.
+    """
+    return {
+        "pattern": opts.get("naming") or DEFAULT_NAME_PATTERN,
+        "pad": pad,
+        "values": {
+            "listing": safe_segment(meta.get("title") or "", TOKEN_MAX["listing"]),
+            "ref": safe_segment(meta.get("reference") or "", TOKEN_MAX["ref"]),
+            "agent": safe_segment(meta.get("agent") or "", TOKEN_MAX["agent"]),
+            "date": datetime.now(DUBAI_TZ).strftime("%Y-%m-%d"),
+        },
+    }
+
+
+def render_name(plan, index):
+    """Expand the pattern for one photo. Returns a stem, never a path."""
+    def expand(m):
+        key = m.group(1)
+        if key == "index":
+            return f"{index:0{plan['pad']}d}"
+        return plan["values"].get(key, "")
+
+    # Sanitise the assembled stem rather than the pieces: that is what collapses
+    # the "--" a missing {ref} leaves in "{listing}-{ref}-{index}", and strips
+    # the orphan leading "-" out of "{ref}-{index}".
+    stem = safe_segment(_TOKEN_RE.sub(expand, plan["pattern"]))
+    # Every token this listing could fill came back empty. {index} always
+    # resolves, so it is the honest floor.
+    return stem or f"{index:0{plan['pad']}d}"
+
+
+def unique_arc(folder, stem, ext, sha, used):
+    """A ZIP member path that cannot collide with one already in `used`.
+
+    Dedupe-by-hash upstream removes duplicate *photos*; this removes duplicate
+    *names*, a different failure: "{listing}" with no {index} asks for the same
+    name forty times. Compared case-insensitively because NTFS and a default
+    APFS volume are — two members differing only in case are two ZIP entries but
+    one file after extraction, and the second silently wins.
+    """
+    prefix = f"{folder}/" if folder else ""
+    # -1 for the dot, -1 so _dodge_reserved's underscore can never push the
+    # finished path past MAX_ARC_PATH.
+    budget = max(8, MAX_ARC_PATH - len(prefix) - len(ext) - 2)
+    for n in range(1, 1000):
+        suffix = "" if n == 1 else f"-{n}"
+        # the disambiguator is reserved out of the budget, so truncation can
+        # never be the thing that eats it
+        head = stem[:budget - len(suffix)].rstrip(" ._-") or "photo"
+        arc = f"{prefix}{_dodge_reserved(head + suffix)}.{ext}"
+        if arc.lower() not in used:
+            used.add(arc.lower())
+            return arc
+    # Unreachable — an archive holds at most MAX_PER_GROUP * 2 photos. Kept as
+    # the proof this terminates: the sha is unique per entry precisely because
+    # the hash dedupe ran before naming.
+    head = stem[:budget - 11].rstrip(" ._-") or "photo"
+    arc = f"{prefix}{_dodge_reserved(head + '-' + sha[:10])}.{ext}"
+    used.add(arc.lower())
+    return arc
 
 
 def slug_from_url(url):
@@ -234,17 +454,25 @@ def slug_from_url(url):
     # one tower arrived as "name.zip", "name (1).zip", "name (2).zip".
     last = re.sub(r"[^a-z0-9\-]", "", last)
     last = re.sub(r"-{2,}", "-", last).strip("-")
+    # The slug is both the by_listing folder and the .zip name, so an unbounded
+    # one silently eats the archive's path budget. Clip the description, never
+    # the trailing listing id — that id is the only thing telling two units in
+    # the same building apart, and clipping from the right ate it.
+    if len(last) > SLUG_MAX:
+        m = re.search(r"-\d{4,}$", last)
+        if m:
+            head = last[:m.start()][:max(1, SLUG_MAX - len(m.group(0)))].strip("-")
+            last = head + m.group(0)
+        else:
+            last = last[:SLUG_MAX].strip("-")
     return last or "propertyfinder-photos"
 
 
 def listing_slug(meta, url):
     """The listing's identity for filenames: its title, else the URL."""
-    s = slugify(meta.get("title") or "") or slug_from_url(url)
-    # Also guards the by_listing folder name — Windows refuses these as
-    # directories too, not just as files.
-    if s.lower() in _WIN_RESERVED:
-        s += "-listing"
-    return s
+    # slugify already defuses reserved device names, which matters here because
+    # this string is a directory under by_listing as well as a file name.
+    return slugify(meta.get("title") or "") or slug_from_url(url)
 
 
 def safe_zip_name(requested):
@@ -552,6 +780,7 @@ def build_manifest_txt(url, meta, n_prop, n_comm, n_other, opts):
     add("Brokerage:", meta.get("broker"))
     add("Source:", url)
     add("Format:", "JPEG" if opts["format"] == "jpeg" else "original (WebP where served)")
+    add("Names:", opts.get("naming", DEFAULT_NAME_PATTERN))
     lines.append("")
     if n_other:
         lines.append(f"Photos: {n_other}")
@@ -635,10 +864,16 @@ def download_to(dest_path, candidates, want_jpeg):
 
 
 def folder_for(group, opts, slug):
+    """Folders stay the app's own vocabulary — the naming pattern only ever
+    names the file — so no user input can reach a directory component and a
+    "../" has nothing to escape. The slug is re-sanitised anyway: it comes from
+    a URL, and defence in depth is free here.
+    """
     if opts["structure"] == "flat":
         return ""
     if opts["structure"] == "by_listing":
-        return f"{slug}/{group}" if group else slug
+        listing = slugify(slug, SLUG_MAX) or "listing"
+        return f"{listing}/{group}" if group else listing
     return group
 
 
@@ -839,6 +1074,8 @@ def scrape():
                 yield nd({"type": "log", "message": " · ".join(str(b) for b in bits)})
             yield nd({"type": "meta", "listing": meta, "slug": slug,
                       "suggested_filename": (slug or "propertyfinder-photos") + ".zip"})
+            for note in naming_notes(opts["naming"], meta):
+                yield nd({"type": "notice", "message": note})
 
             limit = int(opts["max_images"])
             prop_tasks, comm_tasks, structured = extract_galleries(data, limit)
@@ -943,6 +1180,11 @@ def scrape():
                                   if not n_other else f"Packaging ZIP ({n_other} photos)")})
 
             pad = max(2, len(str(max(counters.values()))))
+            plan = build_name_plan(opts, meta, pad)
+            # reserving both manifest names means a photo can never be handed a
+            # path that lands on top of the info file
+            used = {"_info.txt", "_info.json"}
+
             fd, zip_path = tempfile.mkstemp(prefix="pfzip-", suffix=".zip")
             os.close(fd)
             manifest_entries = []
@@ -950,9 +1192,14 @@ def scrape():
                 for e in entries:
                     group = e["group"]
                     folder = folder_for(group, opts, slug)
-                    stem = f"{group}-" if (opts["structure"] == "flat" and group) else ""
-                    name = f"{stem}{e['index']:0{pad}d}.{e['ext']}"
-                    arc = f"{folder}/{name}" if folder else name
+                    stem = render_name(plan, e["index"])
+                    if opts["structure"] == "flat" and group:
+                        # flat drops both galleries into one namespace, so the
+                        # gallery has to survive in the name — this is also what
+                        # keeps the default pattern byte-identical to v3.0.0
+                        # instead of emitting "01.jpg" and "01-2.jpg".
+                        stem = safe_segment(f"{group}-{stem}")
+                    arc = unique_arc(folder, stem, e["ext"], e["sha256"], used)
                     zf.write(e["src"], arc)
                     manifest_entries.append({"file": arc, "group": group or "photos",
                                              "bytes": e["bytes"], "sha256": e["sha256"],
@@ -979,6 +1226,9 @@ def scrape():
                 "community": n_comm,
                 "failed": failed,
                 "truncated": bool(timed_out or capped),
+                # Echoed so the UI can tell "honoured" from "silently dropped by
+                # an older backend" — Pages and Render deploy independently.
+                "naming": opts["naming"],
                 "bytes": total_bytes,
                 "title": meta.get("title"),
                 "expires_in": ZIP_TTL,
