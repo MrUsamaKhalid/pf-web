@@ -955,13 +955,36 @@
     }
     // v3 hands back a download token instead of the bytes: the browser fetches
     // the ZIP straight from the backend, so nothing large ever lives in JS.
-    function saveFromUrl(path, name) {
+    // Tokens live 10 minutes. An expired one answers 404 with a JSON body and no
+    // Content-Disposition, so clicking the anchor NAVIGATES the tab to that JSON
+    // and takes the whole batch with it — including rows whose links still work.
+    // Check first, but only once the link is old enough to be at risk, so the
+    // normal click-it-immediately path pays nothing.
+    const ZIP_PREFLIGHT_AFTER = 8 * 60 * 1000;
+
+    async function saveFromUrl(path, name, createdAt) {
+      const url = BACKEND_URL + path + (name ? "?name=" + encodeURIComponent(name) : "");
+      const aging = createdAt && (Date.now() - createdAt) > ZIP_PREFLIGHT_AFTER;
+      if (aging) {
+        try {
+          const probe = await fetch(url, { method: "HEAD", cache: "no-store" });
+          if (!probe.ok) return false;
+        } catch (e) {
+          // a network hiccup is not proof of expiry — let the browser try
+        }
+      }
       const a = document.createElement("a");
       // The server sets Content-Disposition, so the filename has to be asked
       // for here — the download attribute is ignored cross-origin.
-      a.href = BACKEND_URL + path + (name ? "?name=" + encodeURIComponent(name) : "");
-      a.rel = "noopener";
+      a.href = url; a.rel = "noopener";
+      // Belt as well as braces. The preflight can be skipped (fresh link) or be
+      // inconclusive (offline, CORS), and any response that is NOT a download
+      // would otherwise replace this tab. Targeting a new context means a
+      // download still downloads, while an error can only ever land somewhere
+      // disposable — the queue on this page is never collateral.
+      a.target = "_blank";
       document.body.appendChild(a); a.click(); a.remove();
+      return true;
     }
     function cleanStem(s) {
       return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
@@ -1239,9 +1262,19 @@
         const dl = document.createElement("button");
         dl.className = "chip-btn"; dl.type = "button"; dl.textContent = "Download";
         dl.title = item.entry.name;
-        dl.addEventListener("click", () => item.entry.path
-          ? saveFromUrl(item.entry.path, item.entry.name)
-          : saveBytes(item.entry.bytes, item.entry.name));
+        dl.addEventListener("click", async () => {
+          if (!item.entry.path) { saveBytes(item.entry.bytes, item.entry.name); return; }
+          dl.disabled = true;
+          const ok = await saveFromUrl(item.entry.path, item.entry.name, item.entry.at);
+          dl.disabled = false;
+          if (!ok) {
+            // The link died rather than the listing. Say so on the row and let
+            // them re-fetch it, instead of dumping them on a JSON error page.
+            item.status = "failed";
+            item.note = "That download link expired — press Try again";
+            queueRenderRow(item); queueRenderFooter();
+          }
+        });
         item.acts.appendChild(dl);
       }
       if (item.status === "failed" || item.status === "stopped") {
@@ -1396,8 +1429,8 @@
         const stem = (msg.filename ? msg.filename.replace(/\.zip$/i, "") : "")
           || cleanStem(msg.title) || "propertyfinder-photos";
         const name = queueName(stem, item.listing.reference);
-        if (msg.download) item.entry = { name: name, path: msg.download, bytes: null, size: msg.bytes || 0 };
-        else if (msg.zip) { try { item.entry = { name: name, path: null, bytes: b64ToBytes(msg.zip), size: msg.bytes || 0 }; } catch (e) { item.entry = null; } }
+        if (msg.download) item.entry = { name: name, path: msg.download, bytes: null, size: msg.bytes || 0, at: Date.now() };
+        else if (msg.zip) { try { item.entry = { name: name, path: null, bytes: b64ToBytes(msg.zip), size: msg.bytes || 0, at: Date.now() }; } catch (e) { item.entry = null; } }
         item.t.textContent = msg.title || item.url;
         item.status = "done";
         item.note = (msg.property || 0) + " property · " + (msg.community || 0)
