@@ -338,7 +338,6 @@
 
     .zip-all { width: 100%; height: var(--h-control); margin-top: var(--s3); padding: 0 var(--s5); font-family: var(--font-display); font-weight: 600; font-size: var(--t-md); color: var(--ink); background: #fff; border: 1.5px solid var(--line); border-radius: var(--r-control); cursor: pointer; transition: border-color var(--d) var(--ease), background var(--d) var(--ease), transform var(--d-fast) var(--ease-spring); }
     .zip-all:hover { border-color: var(--pf); background: var(--pf-soft); color: var(--pf-dark); transform: translateY(-2px); }
-    .zip-all:hover { background: #000; transform: translateY(-2px); }
     .zip-all:active { transform: translateY(0) scale(.98); }
 
     /* ============================ server chip + signature ============================ */
@@ -360,6 +359,254 @@
     .signature a { color: #8b929c; text-decoration: none; font-weight: 600; border-bottom: 1.5px dotted #c9ced6; }
     .signature a:hover { color: var(--pf-dark); border-bottom-color: var(--pf); }
 
+    /* ============================ options ============================
+       Append to the existing inline <style>, immediately before the
+       "responsive" section (line 363).
+
+       RESTING SURFACE. Transparent, 44px, 12px radius — the tier
+       .ghost-btn (line 224) already owns. Deliberately NOT the 56px/16px
+       primary tier: a filled bar with the CTA's own geometry sitting
+       directly above the CTA reads as its twin, and a --field-grey bar
+       under the --field-grey URL field reads as a second input. Because
+       this makes no claim of pixel-parity with .field, the border-box
+       arithmetic (1.5 + 56 + 1.5 = 59) that broke the original stops
+       applying at all.
+
+       OPEN SURFACE. White sheet + --line hairline + soft lift — the
+       app's existing ":focus-within goes white" verb applied to a bigger
+       thing — which is what lets the recessed --field tracks inside read.
+
+       NO NEW HEX. #e6e6ea is .bar's track (329), #c7c9cc is .dot (351),
+       #aab0bb is .field .lead (210), #dcdce2 is .chip-btn.quiet:hover
+       (325), #fff is .seg-btn[aria-selected]'s chip (193). Every value
+       below is already in this file.
+       ================================================================= */
+
+    /* A second :root merges with the first; no existing line is touched. */
+    :root {
+      /* The options tier. 44/12 is not a new formation — .ghost-btn holds
+         it. Inside the panel, controls are 34/11 with an 8px inner radius
+         derived by the file's own outer-minus-padding rule (11 - 3),
+         the same arithmetic .seg uses at calc(var(--r-control) - var(--s1)). */
+      --h-opt: 44px;  --r-opt: 12px;
+      --h-mini: 34px; --r-mini: 11px; --r-mini-in: 8px;
+      /* System stack — downloads nothing. Used on exactly one line, the
+         example path: a path set in Inter reads as prose. */
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .sr {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+
+    .opt {
+      margin-top: var(--s2);
+      background: transparent;
+      border: 1.5px solid transparent;
+      border-radius: var(--r-control);
+      transition: background var(--d) var(--ease), border-color var(--d) var(--ease),
+                  box-shadow var(--d) var(--ease), opacity var(--d) var(--ease);
+    }
+    .opt[data-open="1"] {
+      background: #fff; border-color: var(--line);
+      box-shadow: 0 1px 2px rgba(17,17,17,.04), 0 10px 24px -18px rgba(17,17,17,.35);
+    }
+    /* locked for the duration of a run: the summary must never describe
+       settings the job in flight is not using */
+    .opt.is-locked { opacity: .45; }
+
+    /* ---- header ---- */
+    .opt-head {
+      appearance: none; border: 0; background: transparent; cursor: pointer;
+      width: 100%; height: var(--h-opt);
+      display: flex; align-items: center; gap: var(--s3);
+      padding: 0 var(--s3); text-align: left;
+      border-radius: var(--r-opt);
+      font-family: var(--font-body); color: var(--ink);
+      transition: background var(--d-fast) var(--ease);
+    }
+    .opt:not([data-open="1"]) .opt-head:hover { background: var(--field); }
+    .opt-head:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+    .opt-head:disabled { cursor: not-allowed; }
+
+    .opt-glyph { position: relative; flex: none; display: flex; color: #aab0bb; transition: color var(--d) var(--ease); }
+    .opt-glyph svg { width: 17px; height: 17px; }
+    .opt-head:hover .opt-glyph, .opt[data-open="1"] .opt-glyph { color: var(--pf); }
+    /* the same 6px coral marker the selected mode tab uses = "not stock" */
+    .opt-glyph::after {
+      content: ""; position: absolute; top: -3px; right: -4px;
+      width: 6px; height: 6px; border-radius: 50%; background: var(--pf);
+      box-shadow: 0 0 0 2px var(--card);
+      opacity: 0; transition: opacity var(--d) var(--ease);
+    }
+    .opt[data-custom="1"] .opt-glyph::after { opacity: 1; }
+    .opt[data-open="1"] .opt-glyph::after { box-shadow: 0 0 0 2px #fff; }
+
+    .opt-read { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .opt-summary {
+      font-size: var(--t-sm); font-weight: 500; color: var(--ink); line-height: 1.25;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .opt-path {
+      font-family: var(--font-mono); font-size: var(--t-xs); line-height: 1.3;
+      letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .opt-path .d { color: var(--faint); }                        /* folders   */
+    .opt-path .f { color: var(--soft); }                         /* file stem */
+    .opt-path .e { color: var(--pf-dark); font-weight: 600; }    /* extension = the format readout */
+
+    .opt-chev { flex: none; display: flex; color: var(--faint); transition: transform var(--d) var(--ease), color var(--d) var(--ease); }
+    .opt-chev svg { width: 16px; height: 16px; }
+    .opt[data-open="1"] .opt-chev { transform: rotate(180deg); color: var(--ink); }
+
+    /* ---- panel: 0fr -> 1fr, no magic max-height, no one-frame snap ---- */
+    .opt-panel {
+      display: grid; grid-template-rows: 0fr;
+      transition: grid-template-rows var(--d-slow) var(--ease), opacity var(--d) var(--ease);
+      opacity: 0;
+    }
+    .opt-panel.open { grid-template-rows: 1fr; opacity: 1; }
+    .opt-panel-in { overflow: hidden; min-height: 0; }
+    .opt-body {
+      display: flex; flex-direction: column; gap: var(--s3);
+      padding: var(--s4);
+      border-top: var(--stroke) solid var(--line);
+    }
+
+    .opt-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: var(--h-mini); }
+    .opt-row.opt-row-stack { flex-direction: column; align-items: stretch; gap: var(--s2); }
+    .opt-label { font-size: var(--t-sm); font-weight: 500; color: var(--soft); line-height: 1.2; }
+    .opt-note { margin: calc(var(--s2) * -1) 0 0; font-size: var(--t-xs); line-height: 1.45; color: var(--muted); }
+    .opt-note-warn { color: #8a7d55; }   /* the .log-line.note amber, line 292 */
+    .opt-sep { height: var(--stroke); background: var(--line); }
+
+    /* ---- mini segmented control: the sanctioned .seg idiom at 34px ----
+       The white selected chip only reads because it sits in a recessed
+       --field track. Keep the track. */
+    .mseg {
+      display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+      gap: 3px; height: var(--h-mini); padding: 3px;
+      background: var(--field); border-radius: var(--r-mini);
+    }
+    .mseg button {
+      appearance: none; border: 0; background: transparent; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      height: 100%; min-width: 0; padding: 0 10px; white-space: nowrap;
+      font-family: var(--font-body); font-size: var(--t-xs); font-weight: 600; color: var(--muted);
+      border-radius: var(--r-mini-in);
+      transition: background var(--d) var(--ease), color var(--d) var(--ease), box-shadow var(--d) var(--ease);
+    }
+    .mseg button:hover { color: var(--ink); }
+    /* selected = lifted white chip + coral dot. Never the rejected black pill. */
+    .mseg button[aria-checked="true"] {
+      background: #fff; color: var(--ink);
+      box-shadow: 0 1px 2px rgba(17,17,17,.05), 0 4px 10px -6px rgba(17,17,17,.22);
+    }
+    .mseg button[aria-checked="true"]::before {
+      content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: var(--pf);
+    }
+    .mseg button:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+    .mseg button[aria-checked="true"]:focus-visible {
+      box-shadow: 0 1px 2px rgba(17,17,17,.05), 0 0 0 3px var(--pf-soft);
+    }
+
+    /* ---- switch: coral is "on"; black stays reserved for the CTA ---- */
+    .sw {
+      appearance: none; border: 0; cursor: pointer; flex: none;
+      width: 42px; height: 24px; padding: 3px; border-radius: var(--r-pill);
+      background: #c7c9cc; display: inline-flex; align-items: center;
+      transition: background var(--d) var(--ease);
+    }
+    .sw .knob {
+      width: 18px; height: 18px; border-radius: 50%; background: #fff;
+      box-shadow: 0 1px 2px rgba(17,17,17,.18), 0 2px 6px -2px rgba(17,17,17,.25);
+      transition: transform var(--d) var(--ease-spring);
+    }
+    .sw[aria-checked="true"] { background: var(--pf); }
+    .sw[aria-checked="true"] .knob { transform: translateX(18px); }
+    .sw:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+
+    /* ---- stepper ---- */
+    .step {
+      display: inline-flex; align-items: center; gap: 2px;
+      height: var(--h-mini); padding: 3px;
+      background: var(--field); border: 1.5px solid transparent; border-radius: var(--r-mini);
+      transition: background var(--d) var(--ease), border-color var(--d) var(--ease), box-shadow var(--d) var(--ease);
+    }
+    /* the app's focus idiom, exactly as .field does it (line 209) */
+    .step:focus-within { background: #fff; border-color: var(--pf); box-shadow: 0 0 0 3px var(--pf-soft); }
+    .step-b {
+      appearance: none; border: 0; background: transparent; cursor: pointer;
+      width: 28px; height: 26px; border-radius: var(--r-mini-in); color: var(--muted);
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+    }
+    .step-b svg { width: 15px; height: 15px; }
+    .step-b:hover:not(:disabled) { background: #e6e6ea; color: var(--ink); }
+    .step-b:disabled { opacity: .3; cursor: not-allowed; }
+    .step-b:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+    .step-n {
+      width: 42px; height: 26px; border: 0; outline: 0; padding: 0;
+      background: transparent; text-align: center;
+      font-family: var(--font-body); font-size: var(--t-sm); font-weight: 600; color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ---- naming tokens: the .chip-btn vocabulary, 9px radius ---- */
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tok {
+      border: 0; background: var(--field); color: var(--muted); cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: var(--font-body); font-size: var(--t-xs); font-weight: 600;
+      height: 30px; padding: 0 11px; border-radius: 9px;
+      transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+    }
+    .tok:hover { background: #e6e6ea; color: var(--ink); }
+    .tok[aria-pressed="true"] { background: var(--pf-soft); color: var(--pf-dark); }
+    .tok[aria-pressed="true"]:hover { background: rgba(239,94,78,.2); }
+    .tok:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+    .tok.is-locked { background: transparent; color: var(--faint); cursor: default; padding-left: 2px; }
+    .tok.is-locked svg { width: 11px; height: 11px; }
+
+    /* ---- footer ---- */
+    .opt-foot {
+      display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+      padding-top: var(--s3); border-top: var(--stroke) solid var(--line);
+    }
+    .opt-memo { display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-xs); color: var(--faint); }
+    .opt-memo.on { color: var(--pf-dark); }
+    .opt-reset {
+      border: 0; background: transparent; color: var(--muted); cursor: pointer;
+      font-family: var(--font-body); font-size: var(--t-xs); font-weight: 600;
+      height: 26px; padding: 0 9px; border-radius: var(--r-mini-in);
+      transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+    }
+    .opt-reset:hover { background: var(--pf-soft); color: var(--pf-dark); }
+    .opt-reset:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--pf-soft); }
+
+    /* ============================================================
+       FOCUS-VISIBLE for the controls that already shipped. The file
+       has no :focus-visible rule outside .chip-btn, so keyboard users
+       currently get only the UA default. Same coral ring as above.
+       ============================================================ */
+    .seg-btn:focus-visible, .ghost-btn:focus-visible, .zip-all:focus-visible {
+      outline: 0; box-shadow: 0 0 0 3px var(--pf-soft);
+    }
+    .seg-btn[aria-selected="true"]:focus-visible {
+      box-shadow: 0 1px 2px rgba(17,17,17,.05), 0 6px 14px -8px rgba(17,17,17,.22), 0 0 0 3px var(--pf-soft);
+    }
+    .cta:focus-visible {
+      outline: 0; box-shadow: 0 16px 32px -16px rgba(17,17,17,.55), 0 0 0 3px var(--pf-soft);
+    }
+
+    /* ---- narrow: stack the wide rows so a 3-up segment never overflows ---- */
+    @media (max-width: 420px) {
+      .opt-row { flex-direction: column; align-items: stretch; gap: 6px; }
+      .opt-row .mseg { width: 100%; }
+      .opt-row .step { align-self: flex-start; }
+      .opt-body { padding: var(--s3); }
+    }
     /* ============================ responsive ============================ */
     @media (max-width: 420px) {
       body { padding: var(--s4) var(--s3); }
@@ -441,6 +688,122 @@
                     data-lpignore="true" data-1p-ignore="true" data-form-type="other"
                     placeholder="https://www.propertyfinder.ae/en/plp/...&#10;https://www.propertyfinder.ae/en/plp/..."></textarea>
           <p class="counter" id="counter"></p>
+        </div>
+
+        <div class="opt" id="opt" data-open="0">
+
+          <!-- The header is a real button with a STABLE accessible name. The
+               summary and path inside it change on every click, so they are
+               aria-hidden and the spoken update goes to #optLive instead —
+               otherwise the button's own name would mutate and a screen
+               reader would re-announce the whole control on every change. -->
+          <button class="opt-head" id="optToggle" type="button" data-cursor
+                  aria-expanded="false" aria-controls="optPanel"
+                  aria-label="Download options">
+            <span class="opt-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M4 8h6" /><path d="M14 8h6" /><circle cx="12" cy="8" r="2.2" />
+                <path d="M4 16h10" /><path d="M18 16h2" /><circle cx="16" cy="16" r="2.2" />
+              </svg>
+            </span>
+            <span class="opt-read" aria-hidden="true">
+              <span class="opt-summary" id="optSummary">Both galleries · JPEG · grouped · info.txt · max 80</span>
+              <span class="opt-path" id="optPath"><span class="d" id="optPathDir">property/</span><span class="f" id="optPathFile">01</span><span class="e" id="optPathExt">.jpg</span></span>
+            </span>
+            <span class="opt-chev" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </span>
+          </button>
+
+          <p class="sr" id="optLive" aria-live="polite"></p>
+
+          <!-- display:grid at 0fr; .open animates to 1fr. `hidden` is removed
+               before the transition and re-applied on transitionend, so the
+               collapsed panel is out of the tab order via [hidden] rather
+               than via `inert` (which older Safari/Firefox ignore). -->
+          <div class="opt-panel" id="optPanel" hidden>
+            <div class="opt-panel-in" id="optPanelIn">
+              <div class="opt-body">
+
+                <div class="opt-row">
+                  <span class="opt-label" id="optLblCommunity">Community photos</span>
+                  <button class="sw" id="optCommunity" type="button" role="switch"
+                          aria-checked="true" aria-labelledby="optLblCommunity"><span class="knob" aria-hidden="true"></span></button>
+                </div>
+
+                <div class="opt-row">
+                  <span class="opt-label" id="optLblInfo">Info file</span>
+                  <span class="mseg" id="optInfo" role="radiogroup" aria-labelledby="optLblInfo">
+                    <button type="button" role="radio" data-v="off"  aria-checked="false" tabindex="-1">Off</button>
+                    <button type="button" role="radio" data-v="txt"  aria-checked="true"  tabindex="0">.txt</button>
+                    <button type="button" role="radio" data-v="json" aria-checked="false" tabindex="-1">.json</button>
+                  </span>
+                </div>
+
+                <div class="opt-row">
+                  <span class="opt-label" id="optLblFormat">Photo format</span>
+                  <span class="mseg" id="optFormat" role="radiogroup" aria-labelledby="optLblFormat">
+                    <button type="button" role="radio" data-v="jpeg"     aria-checked="true"  tabindex="0">JPEG</button>
+                    <button type="button" role="radio" data-v="original" aria-checked="false" tabindex="-1">Original</button>
+                  </span>
+                </div>
+                <p class="opt-note" id="optFormatNote" hidden>Keeps PropertyFinder's own file, usually .webp. Community photos are always JPEG.</p>
+
+                <div class="opt-sep" role="presentation"></div>
+
+                <div class="opt-row">
+                  <span class="opt-label" id="optLblStructure">Folders</span>
+                  <span class="mseg" id="optStructure" role="radiogroup" aria-labelledby="optLblStructure">
+                    <button type="button" role="radio" data-v="grouped"    aria-checked="true"  tabindex="0">Grouped</button>
+                    <button type="button" role="radio" data-v="flat"       aria-checked="false" tabindex="-1">Flat</button>
+                    <button type="button" role="radio" data-v="by_listing" aria-checked="false" tabindex="-1">By listing</button>
+                  </span>
+                </div>
+
+                <div class="opt-row">
+                  <span class="opt-label" id="optLblMax">Max per gallery</span>
+                  <span class="step">
+                    <button class="step-b" id="optMaxDec" type="button" aria-label="Ten fewer photos per gallery"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12" /></svg></button>
+                    <input class="step-n" id="optMax" type="text" inputmode="numeric" maxlength="3" value="80"
+                           name="pf-max-images" aria-labelledby="optLblMax"
+                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                           data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
+                    <button class="step-b" id="optMaxInc" type="button" aria-label="Ten more photos per gallery"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 6v12" /><path d="M6 12h12" /></svg></button>
+                  </span>
+                </div>
+
+                <div class="opt-row opt-row-stack">
+                  <span class="opt-label" id="optLblNames">File names</span>
+                  <span class="chips" id="optNames" role="group" aria-labelledby="optLblNames">
+                    <button class="tok" type="button" data-t="listing" aria-pressed="false">listing</button>
+                    <button class="tok" type="button" data-t="ref"     aria-pressed="false">ref</button>
+                    <button class="tok" type="button" data-t="agent"   aria-pressed="false">agent</button>
+                    <button class="tok" type="button" data-t="date"    aria-pressed="false">date</button>
+                    <span class="tok is-locked"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2.5" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>index<span class="sr"> — always included, always last</span></span>
+                  </span>
+                </div>
+                <p class="opt-note opt-note-warn" id="optCapNote" hidden>This server build numbers files instead. Photos will come out as 01, 02, 03.</p>
+
+                <div class="opt-sep" id="optDeliverySep" role="presentation" hidden></div>
+
+                <div class="opt-row" id="optDeliveryRow" hidden>
+                  <span class="opt-label" id="optLblDelivery">Many links</span>
+                  <span class="mseg" id="optDelivery" role="radiogroup" aria-labelledby="optLblDelivery">
+                    <button type="button" role="radio" data-v="separate" aria-checked="true"  tabindex="0">Separate</button>
+                    <button type="button" role="radio" data-v="combined" aria-checked="false" tabindex="-1">One ZIP</button>
+                  </span>
+                </div>
+
+                <div class="opt-foot">
+                  <span class="opt-memo" id="optMemo">Everything is at its default</span>
+                  <button class="opt-reset" id="optReset" type="button" hidden>Reset</button>
+                </div>
+
+              </div>
+            </div>
+          </div>
         </div>
 
         <button id="go" class="cta" type="button" data-cursor>
@@ -528,11 +891,6 @@
       a.href = BACKEND_URL + path + (name ? "?name=" + encodeURIComponent(name) : "");
       a.rel = "noopener";
       document.body.appendChild(a); a.click(); a.remove();
-    }
-    // Options UI lands in the next pass; until then the backend defaults apply.
-    function currentOptions() {
-      try { return JSON.parse(localStorage.getItem("pf_options") || "{}") || {}; }
-      catch (e) { return {}; }
     }
     function cleanStem(s) {
       return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
@@ -680,6 +1038,7 @@
       if (!isPfUrl(url)) { setStatus("That doesn't look like a PropertyFinder link.", "bad"); return; }
 
       busy = true; goBtn.disabled = true; setStatus("", "");
+      optLock(true);
       resetResults("log");
       step("Contacting server");
       const wake = setTimeout(() => {
@@ -691,10 +1050,14 @@
         await streamScrape(url, {
           log: (m) => { clearTimeout(wake); step(m); },
           notice: (m) => { clearTimeout(wake); finishLine(); noteLine(m); activeLine = null; },
+          // the real title/reference/agent turn the example path from a
+          // specimen into this user's actual filename
+          meta: (m) => optAdoptMeta(m),
           progress: (d, t) => { clearTimeout(wake); stepProgress(d, t); },
           error: (m) => { clearTimeout(wake); fail(m); },
           done: (msg) => {
             clearTimeout(wake); finishLine();
+            optNoteDone(msg);
             barWrap.hidden = false; barFill.style.width = "100%";
             const name = msg.filename || "propertyfinder-photos.zip";
             try {
@@ -715,7 +1078,7 @@
           },
         });
       } finally {
-        clearTimeout(wake); busy = false; goBtn.disabled = false;
+        clearTimeout(wake); busy = false; goBtn.disabled = false; optLock(false);
       }
     }
 
@@ -745,6 +1108,10 @@
       if (!list.length) { setStatus("Paste at least one PropertyFinder link.", "bad"); urlsInput.focus(); return; }
 
       busy = true; goBtn.disabled = true; setStatus("", "");
+      optLock(true);
+      // Capture the delivery choice for the whole run: the panel is locked, but
+      // reading it once makes the run independent of anything that follows.
+      const runCombine = optCombineBatch();
       resetResults("rows");
       const collected = [];
       let ok = 0, failed = 0;
@@ -781,7 +1148,7 @@
               const settle = (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
               streamScrape(url, {
                 log: (msg) => { m.textContent = msg; if (msg.indexOf("Listing: ") === 0) t.textContent = msg.slice(9); },
-                meta: (msg) => { listingMeta = msg.listing || {}; },
+                meta: (msg) => { listingMeta = msg.listing || {}; optAdoptMeta(msg); },
                 progress: (d, total) => { m.textContent = "Downloading " + d + "/" + total; },
                 error: (msg, code) => settle({ error: msg, code: code }),
                 done: (msg) => settle({ done: msg }),
@@ -837,7 +1204,7 @@
           rowsEl.scrollTop = rowsEl.scrollHeight;
         }
       } finally {
-        busy = false; goBtn.disabled = false;
+        busy = false; goBtn.disabled = false; optLock(false);
       }
 
       const hosted = collected.some((c) => c.path);
@@ -849,7 +1216,7 @@
       // the total is small enough to survive it.
       const MAX_COMBINE = 200 * 1024 * 1024;
       const totalBytes = collected.reduce((n, c) => n + (c.size || 0), 0);
-      if (collected.length > 1 && window.fflate && totalBytes < MAX_COMBINE) {
+      if (runCombine && collected.length > 1 && window.fflate && totalBytes < MAX_COMBINE) {
         zipAllBtn.hidden = false;
         const label = "Download all " + collected.length + " as one ZIP";
         zipAllBtn.textContent = label;
@@ -891,6 +1258,7 @@
       paneBatch.hidden = single;
       goLabel.textContent = single ? "Download photos" : "Process links";
       resultsEl.hidden = true; zipAllBtn.hidden = true; setStatus("", "");
+      optSyncMode();
       (single ? urlInput : urlsInput).focus({ preventScroll: true });
     }
 
@@ -992,6 +1360,483 @@
         goBtn.style.setProperty("--cy", ((e.clientY - r.top) / r.height * 100) + "%");
       });
     })();
+    /* ===================================================================
+       OPTIONS — append at the END of the existing <script>, after the
+       motion IIFE (after line 994). Everything below runs in the same
+       top-level scope, so it reads `mode`, `busy`, `goBtn`, `urlInput`,
+       `urlsInput`, `zipAllBtn` directly. No monkey-patching, no
+       MutationObservers: the four touch-points in existing functions are
+       listed in the build order and are one line each.
+
+       DELETE the placeholder currentOptions() at lines 532-536 — it is
+       redefined here.
+
+       BACKEND CONTRACT. `naming` already exists in OPTION_SPEC on the
+       deployed backend with default "{index}", and the done frame already
+       echoes it. The default therefore produces byte-identical archives to
+       what ships today, so this page is safe to deploy before or after
+       Render. The /capabilities probe below detects an older backend.
+       =================================================================== */
+
+    const OPT_KEY = "pf_options";
+    const OPT_DEFAULT_NAMING = "{index}";
+    const OPT_DEFAULTS = {
+      community: true, info: true, info_format: "txt", format: "jpeg",
+      structure: "grouped", max_images: 80, naming: OPT_DEFAULT_NAMING,
+      batch_delivery: "separate",
+    };
+    /* What actually reaches /scrape. `property` is pinned true and never
+       exposed, which makes the backend's only hard error ("select at least
+       one gallery") structurally unreachable from this UI — that is why the
+       panel has no error state. `batch_delivery` is client-side only. */
+    const OPT_WIRE = ["community", "info", "info_format", "format", "structure", "max_images", "naming"];
+    const OPT_NAME_TOKENS = ["listing", "ref", "agent", "date"];  // canonical order; {index} is always last
+    const OPT_MIN = 1, OPT_STEP = 10;
+    const OPT_SEG_MAX = 80, OPT_SLUG_MAX = 48;   // MAX_SEGMENT / SLUG_MAX in app.py
+    const OPT_SAMPLE = { listing: "park-tower-b", ref: "AP8297-3", agent: "Sara Ahmed" };
+
+    const optEl = $("opt"), optToggle = $("optToggle"), optLive = $("optLive");
+    const optSummary = $("optSummary");
+    const optPathDir = $("optPathDir"), optPathFile = $("optPathFile"), optPathExt = $("optPathExt");
+    const optPanel = $("optPanel");
+    const optCommunity = $("optCommunity"), optInfo = $("optInfo"), optFormat = $("optFormat");
+    const optFormatNote = $("optFormatNote"), optStructure = $("optStructure");
+    const optMax = $("optMax"), optMaxDec = $("optMaxDec"), optMaxInc = $("optMaxInc");
+    const optNames = $("optNames"), optCapNote = $("optCapNote");
+    const optDelivery = $("optDelivery"), optDeliveryRow = $("optDeliveryRow"), optDeliverySep = $("optDeliverySep");
+    const optMemo = $("optMemo"), optReset = $("optReset");
+    const optCardEl = $("card");
+
+    let optState = null;
+    let optOpen = false, optWritable = true, optRestored = false, optReady = false;
+    let optMaxCeil = 150;                 // MAX_PER_GROUP; refreshed from /capabilities
+    let optCaps = null;                   // null unprobed | "ok" | "old" | "fail"
+    let optHideTimer = null, optLastSpoken = "";
+    /* Real listing values, adopted from the `meta` frame once a run speaks.
+       Until then the preview is derived from the pasted URL. */
+    let optMeta = {};
+
+    /* =========== mirror of app.py's sanitiser ===========================
+       Verified against the Python across 40 adversarial cases (Arabic,
+       emoji, RLO override, NFKD device names, accents, traversal, the
+       id-preserving slug clip): zero mismatches. If app.py's naming code
+       changes, THIS MUST CHANGE WITH IT — a preview that drifts from the
+       server is worse than no preview.
+       =================================================================== */
+    const OPT_FOLD = { "ß": "ss", "æ": "ae", "Æ": "AE", "ø": "o",
+      "Ø": "O", "đ": "d", "Đ": "D", "ł": "l", "Ł": "L",
+      "þ": "th", "Þ": "Th", "ð": "d", "Ð": "D", "œ": "oe", "Œ": "OE" };
+    const OPT_RESERVED = ["con", "prn", "aux", "nul", "clock$"]
+      .concat([0,1,2,3,4,5,6,7,8,9].map((i) => "com" + i))
+      .concat([0,1,2,3,4,5,6,7,8,9].map((i) => "lpt" + i));
+
+    function optFoldAscii(v) {
+      let s = String(v == null ? "" : v).split("").map((c) => OPT_FOLD[c] || c).join("");
+      s = s.normalize("NFKD").replace(/\p{M}/gu, "");
+      return s.replace(/[^\x00-\x7f]+/g, "");
+    }
+    function optDodge(stem) {
+      return OPT_RESERVED.indexOf(stem.split(".")[0].toLowerCase()) !== -1 ? stem + "_" : stem;
+    }
+    function optSafeSeg(value, maxLen) {
+      const cap = maxLen || OPT_SEG_MAX;
+      let s = optFoldAscii(value);
+      s = s.replace(/[\x00-\x1f\x7f<>:"/\\|?*\s]+/g, "-");
+      s = s.replace(/[^A-Za-z0-9._-]+/g, "-");
+      s = s.replace(/\.{2,}/g, ".").replace(/-{2,}/g, "-");
+      s = s.replace(/^[ ._-]+|[ ._-]+$/g, "");
+      if (s.length > cap) s = s.slice(0, cap).replace(/[ ._-]+$/, "");
+      return optDodge(s);
+    }
+    function optSlugify(text, maxLen) {
+      return optDodge(optSafeSeg(text, maxLen || OPT_SLUG_MAX).toLowerCase().replace(/^[._-]+|[._-]+$/g, ""));
+    }
+    function optSlugFromUrl(u) {
+      let path = "";
+      try { path = new URL(u).pathname; } catch (e) { return ""; }
+      const seg = path.split("/").filter(Boolean);
+      if (!seg.length) return "";
+      let last = seg[seg.length - 1].replace(/\.\w+$/, "").toLowerCase();
+      last = last.replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "");
+      last = last.replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
+      // Clip the description, never the trailing listing id — that id is the
+      // only thing telling two units in the same building apart.
+      if (last.length > OPT_SLUG_MAX) {
+        const m = /-\d{4,}$/.exec(last);
+        if (m) {
+          last = last.slice(0, m.index).slice(0, Math.max(1, OPT_SLUG_MAX - m[0].length))
+                     .replace(/^-+|-+$/g, "") + m[0];
+        } else {
+          last = last.slice(0, OPT_SLUG_MAX).replace(/^-+|-+$/g, "");
+        }
+      }
+      return last;
+    }
+
+    /* ------------------------------ state ------------------------------ */
+    function optOneOf(v, list, dflt) { return list.indexOf(v) !== -1 ? v : dflt; }
+    function optClampMax(v) {
+      const n = parseInt(v, 10);
+      if (!isFinite(n)) return OPT_DEFAULTS.max_images;
+      return Math.max(OPT_MIN, Math.min(optMaxCeil, n));
+    }
+    /* Known tokens only, canonical order, {index} always last. The UI cannot
+       produce a pattern without {index}, so the backend's "repeats get -2, -3"
+       warning is unreachable from here — and neither can a hand-edited
+       localStorage payload get past this. */
+    function optCanonNaming(list) {
+      return OPT_NAME_TOKENS.filter((t) => list.indexOf(t) !== -1)
+        .map((t) => "{" + t + "}").concat("{index}").join("-");
+    }
+    function optSanitizeNaming(pattern) {
+      const s = String(pattern || "");
+      return optCanonNaming(OPT_NAME_TOKENS.filter((t) => s.indexOf("{" + t + "}") !== -1));
+    }
+    function optTokens() {
+      const s = optState.naming;
+      return OPT_NAME_TOKENS.filter((t) => s.indexOf("{" + t + "}") !== -1);
+    }
+
+    function optLoad() {
+      const o = {};
+      for (const k in OPT_DEFAULTS) o[k] = OPT_DEFAULTS[k];
+      let raw = null;
+      try { raw = JSON.parse(localStorage.getItem(OPT_KEY) || "null"); } catch (e) {}
+      if (raw && typeof raw === "object") {
+        optRestored = true;
+        if (typeof raw.community === "boolean") o.community = raw.community;
+        if (typeof raw.info === "boolean") o.info = raw.info;
+        o.info_format    = optOneOf(raw.info_format, ["txt", "json"], o.info_format);
+        o.format         = optOneOf(raw.format, ["jpeg", "original"], o.format);
+        o.structure      = optOneOf(raw.structure, ["grouped", "flat", "by_listing"], o.structure);
+        o.batch_delivery = optOneOf(raw.batch_delivery, ["separate", "combined"], o.batch_delivery);
+        if (raw.max_images != null) o.max_images = optClampMax(raw.max_images);
+        if (typeof raw.naming === "string") o.naming = optSanitizeNaming(raw.naming);
+      }
+      return o;
+    }
+    function optSave() {
+      try { localStorage.setItem(OPT_KEY, JSON.stringify(optState)); optWritable = true; }
+      catch (e) { optWritable = false; }   // private browsing: say so, never claim it saved
+    }
+    function optChangedCount() {
+      let n = 0;
+      for (const k in OPT_DEFAULTS) if (optState[k] !== OPT_DEFAULTS[k]) n++;
+      return n;
+    }
+
+    /* ---- the two functions the rest of the app consumes ---- */
+    /* REPLACES the stub at lines 532-536: same signature, same single call
+       site (line 622), but it projects the wire subset so the client-only
+       batch_delivery never reaches normalize_options(). */
+    function currentOptions() {
+      const out = {};
+      for (let i = 0; i < OPT_WIRE.length; i++) out[OPT_WIRE[i]] = optState[OPT_WIRE[i]];
+      return out;
+    }
+    function optCombineBatch() { return optState.batch_delivery === "combined"; }
+
+    /* ------------------------------ preview ------------------------------ */
+    /* Dubai is a fixed UTC+4 with no DST, so shifting UTC and reading the
+       date back is exactly what datetime.now(DUBAI_TZ) does server-side. */
+    function optToday() { return new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 10); }
+
+    function optTypedUrl() {
+      const raw = (mode === "single" ? urlInput.value : (urlsInput.value.split(/\s+/)[0] || "")).trim();
+      return isPfUrl(raw) ? raw : "";
+    }
+    /* mirrors listing_slug(meta, url) = slugify(title) or slug_from_url(url) */
+    function optListingSlug() {
+      const fromTitle = optSlugify(optMeta.title || "");
+      if (fromTitle) return fromTitle;
+      const u = optTypedUrl();
+      return (u && optSlugFromUrl(u)) || OPT_SAMPLE.listing;
+    }
+    /* mirrors build_name_plan(): {listing} is the sanitised TITLE (case
+       preserved, 40 cap) — not the slug. Before the meta frame arrives we
+       have no title, so the URL slug stands in. */
+    function optNameValues() {
+      const fromTitle = optSafeSeg(optMeta.title || "", 40);
+      const u = optTypedUrl();
+      return {
+        listing: fromTitle || optSafeSeg((u && optSlugFromUrl(u)) || OPT_SAMPLE.listing, 40),
+        ref: optSafeSeg(optMeta.reference || OPT_SAMPLE.ref, 24),
+        agent: optSafeSeg(optMeta.agent || OPT_SAMPLE.agent, 24),
+        date: optToday(),
+      };
+    }
+    /* mirrors folder_for() + render_name() + the flat-mode group prefix */
+    function optExample() {
+      const group = "property";
+      let dir = "";
+      if (optState.structure === "grouped") dir = group + "/";
+      else if (optState.structure === "by_listing") dir = optListingSlug() + "/" + group + "/";
+
+      const vals = optNameValues();
+      // pad is max(2, digits in the largest gallery count) server-side; 2 is
+      // right for every gallery under 100 photos, which is all of them in practice
+      const raw = optState.naming.replace(/\{([a-z_]+)\}/g, (m, k) => (k === "index" ? "01" : (vals[k] || "")));
+      let stem = optSafeSeg(raw) || "01";
+      if (optState.structure === "flat") stem = optSafeSeg(group + "-" + stem);
+      return { dir: dir, file: stem, ext: "." + (optState.format === "original" ? "webp" : "jpg") };
+    }
+
+    function optSummaryText() {
+      const compact = optNarrow.matches;
+      const bits = [];
+      if (!optState.community) bits.push("Property only");
+      else if (!compact) bits.push("Both galleries");
+      bits.push(optState.format === "original" ? "Original" : "JPEG");
+      bits.push(optState.structure === "grouped" ? "grouped"
+              : optState.structure === "flat" ? "flat" : "per listing");
+      if (optState.info) bits.push("info." + optState.info_format);
+      else if (!compact) bits.push("no info file");
+      // at 420px drop the clauses still at their default rather than ellipsing
+      if (!compact || optState.max_images !== OPT_DEFAULTS.max_images) bits.push("max " + optState.max_images);
+      if (mode === "batch" && optState.batch_delivery === "combined") bits.push("one ZIP");
+      return bits.join(" · ");
+    }
+
+    /* ------------------------------ render ------------------------------ */
+    function optSetSeg(el, value) {
+      const btns = el.querySelectorAll('[role="radio"]');
+      for (let i = 0; i < btns.length; i++) {
+        const on = btns[i].dataset.v === value;
+        btns[i].setAttribute("aria-checked", String(on));
+        btns[i].tabIndex = on ? 0 : -1;
+      }
+    }
+    function optRender() {
+      optSetSeg(optInfo, optState.info ? optState.info_format : "off");
+      optSetSeg(optFormat, optState.format);
+      optSetSeg(optStructure, optState.structure);
+      optSetSeg(optDelivery, optState.batch_delivery);
+      optCommunity.setAttribute("aria-checked", String(optState.community));
+      optFormatNote.hidden = optState.format !== "original";
+
+      if (document.activeElement !== optMax) optMax.value = String(optState.max_images);
+      optMaxDec.disabled = optState.max_images <= OPT_MIN;
+      optMaxInc.disabled = optState.max_images >= optMaxCeil;
+
+      const on = optTokens();
+      const toks = optNames.querySelectorAll(".tok[data-t]");
+      for (let i = 0; i < toks.length; i++) {
+        toks[i].setAttribute("aria-pressed", String(on.indexOf(toks[i].dataset.t) !== -1));
+      }
+      /* Honest about deploy skew: warn whenever a custom pattern is set and we
+         have NOT positively confirmed the server supports it — including when
+         the probe timed out, which on a cold Render instance is the common path.
+         At the default pattern the note never shows, because the default is
+         byte-identical on old and new backends alike. */
+      optCapNote.hidden = !(optState.naming !== OPT_DEFAULT_NAMING && optCaps !== "ok");
+
+      const batch = mode === "batch";
+      optDeliveryRow.hidden = !batch;
+      optDeliverySep.hidden = !batch;
+
+      optSummary.textContent = optSummaryText();
+      const ex = optExample();
+      optPathDir.textContent = ex.dir;
+      optPathFile.textContent = ex.file;
+      optPathExt.textContent = ex.ext;
+
+      const n = optChangedCount();
+      optEl.dataset.custom = n ? "1" : "0";
+      optReset.hidden = !n;
+      if (!optWritable) optMemo.textContent = "Not saved — this browser blocks storage";
+      else if (!n) optMemo.textContent = "Everything is at its default";
+      else if (optRestored) optMemo.textContent = "Remembered from your last visit · " + n + " changed";
+      else optMemo.textContent = n + " changed · saved on this device";
+      optMemo.className = "opt-memo" + (n && optWritable ? " on" : "");
+
+      // Announce once per real change, and never on first paint.
+      if (optReady) {
+        const spoken = optSummaryText() + ". Example: " + ex.dir + ex.file + ex.ext;
+        if (spoken !== optLastSpoken) { optLastSpoken = spoken; optLive.textContent = spoken; }
+      }
+    }
+    function optSet(key, value) {
+      if (key === "info_mode") {
+        if (value === "off") optState.info = false;
+        else { optState.info = true; optState.info_format = value; }
+      } else {
+        optState[key] = value;
+      }
+      optSave(); optRender();
+    }
+
+    /* ------------------------------ open / close ------------------------------ */
+    const OPT_REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function optSetOpen(next) {
+      const want = !!next && !optToggle.disabled;
+      if (want === optOpen) return;
+      optOpen = want;
+      optEl.dataset.open = want ? "1" : "0";
+      optToggle.setAttribute("aria-expanded", String(want));
+      clearTimeout(optHideTimer);
+      if (want) {
+        optPanel.hidden = false;          // [hidden] is display:none!important
+        void optPanel.offsetWidth;        // commit the 0fr frame before animating
+        optPanel.classList.add("open");
+        if (optReady) optLive.textContent = "Options open. " + optSummaryText();
+        optLastSpoken = "";
+      } else {
+        optPanel.classList.remove("open");
+        // hidden goes back on after the collapse so the panel leaves the tab
+        // order — [hidden] is universally supported where `inert` is not
+        optHideTimer = setTimeout(() => { optPanel.hidden = true; }, OPT_REDUCE ? 0 : 340);
+      }
+    }
+    optToggle.addEventListener("click", () => optSetOpen(!optOpen));
+    optPanel.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.stopPropagation(); optSetOpen(false); optToggle.focus(); }
+    });
+
+    /* ------------------------------ controls ------------------------------ */
+    function optWireSeg(el, key) {
+      const btns = Array.prototype.slice.call(el.querySelectorAll('[role="radio"]'));
+      btns.forEach((b, i) => {
+        b.addEventListener("click", () => optSet(key, b.dataset.v));
+        b.addEventListener("keydown", (e) => {
+          let j = -1;
+          if (e.key === "ArrowRight" || e.key === "ArrowDown") j = (i + 1) % btns.length;
+          else if (e.key === "ArrowLeft" || e.key === "ArrowUp") j = (i - 1 + btns.length) % btns.length;
+          else if (e.key === "Home") j = 0;
+          else if (e.key === "End") j = btns.length - 1;
+          else return;
+          e.preventDefault();
+          optSet(key, btns[j].dataset.v);
+          btns[j].focus();
+        });
+      });
+    }
+    optWireSeg(optInfo, "info_mode");
+    optWireSeg(optFormat, "format");
+    optWireSeg(optStructure, "structure");
+    optWireSeg(optDelivery, "batch_delivery");
+
+    optCommunity.addEventListener("click", () => optSet("community", !optState.community));
+
+    function optSetMax(n) { optSet("max_images", optClampMax(n)); }
+    optMaxDec.addEventListener("click", () => optSetMax(optState.max_images - OPT_STEP));
+    optMaxInc.addEventListener("click", () => optSetMax(optState.max_images + OPT_STEP));
+    /* Accept in-range typing live, clamp only on commit — otherwise typing
+       "1" then "5" then "0" on the way to 150 gets clamped mid-keystroke. */
+    optMax.addEventListener("input", () => {
+      const digits = optMax.value.replace(/[^0-9]/g, "").slice(0, 3);
+      if (digits !== optMax.value) optMax.value = digits;
+      const n = parseInt(digits, 10);
+      if (isFinite(n) && n >= OPT_MIN && n <= optMaxCeil) { optState.max_images = n; optSave(); optRender(); }
+    });
+    optMax.addEventListener("change", () => optSetMax(optMax.value));
+    optMax.addEventListener("blur", () => { optMax.value = String(optState.max_images); });
+    optMax.addEventListener("keydown", (e) => {
+      const step = e.shiftKey ? OPT_STEP : 1;
+      if (e.key === "ArrowUp") { e.preventDefault(); optSetMax(optState.max_images + step); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); optSetMax(optState.max_images - step); }
+      else if (e.key === "Enter") { e.preventDefault(); optSetMax(optMax.value); optMax.blur(); }
+    });
+
+    optNames.addEventListener("click", (e) => {
+      const b = e.target.closest && e.target.closest(".tok[data-t]");
+      if (!b) return;
+      const on = optTokens(), t = b.dataset.t, has = on.indexOf(t) !== -1;
+      optSet("naming", optCanonNaming(OPT_NAME_TOKENS.filter((k) => (k === t ? !has : on.indexOf(k) !== -1))));
+    });
+
+    optReset.addEventListener("click", () => {
+      for (const k in OPT_DEFAULTS) optState[k] = OPT_DEFAULTS[k];
+      optRestored = false;
+      try { localStorage.removeItem(OPT_KEY); optWritable = true; } catch (e) { optWritable = false; }
+      optRender();
+      optToggle.focus();
+    });
+
+    /* ------------------------------ integration ------------------------------ */
+    /* Called from setMode(); `mode` already holds the new value. */
+    function optSyncMode() { optRender(); }
+
+    /* Called directly from runSingle/runBatch — not inferred from a
+       MutationObserver on goBtn.disabled, and not by reassigning the run
+       functions. A user must not be able to rewrite the summary while a job
+       streams under settings it no longer describes. */
+    function optLock(on) {
+      optToggle.disabled = !!on;
+      optEl.classList.toggle("is-locked", !!on);
+      if (on) optSetOpen(false);
+    }
+
+    /* The meta frame already carries the real title/reference/agent and is
+       already dispatched by streamScrape — it just had no caller in
+       runSingle. Adopting it turns the example from a specimen into the
+       user's actual filename. */
+    function optAdoptMeta(m) {
+      const L = (m && m.listing) || {};
+      optMeta = { title: L.title || "", reference: L.reference || "", agent: L.agent || "" };
+      optRender();
+    }
+    /* An older backend drops `naming` silently; the done frame echoes it when
+       honoured, so its absence is a positive signal that the pattern was
+       ignored. */
+    function optNoteDone(msg) {
+      if (msg && typeof msg.naming === "string") optCaps = "ok";
+      else if (msg) optCaps = "old";
+      optRender();
+    }
+
+    /* The tilt handler on .stage only stands down for input/textarea/button/a,
+       so a row label or the panel's whitespace would rock the whole card while
+       the user aims at a 34px control. Swallow it here and flatten the card. */
+    optEl.addEventListener("mousemove", (e) => {
+      e.stopPropagation();
+      optCardEl.classList.remove("lift");
+      optCardEl.style.transform = "";
+    });
+
+    /* the summary must stay honest across the compact breakpoint */
+    const optNarrow = window.matchMedia("(max-width: 420px)");
+    if (optNarrow.addEventListener) optNarrow.addEventListener("change", optRender);
+    else if (optNarrow.addListener) optNarrow.addListener(optRender);
+
+    /* The example follows the real link. `focus` is wired as well as `input`
+       because the Paste button sets .value and focuses without ever firing an
+       input event (lines 902-905). */
+    urlInput.addEventListener("input", optRender);
+    urlInput.addEventListener("focus", optRender);
+    urlsInput.addEventListener("input", optRender);
+    urlsInput.addEventListener("focus", optRender);
+
+    /* Lazy capability probe: first panel open only, never on page load, so a
+       cold Render start never sits on the paste-to-download path. Silent on
+       failure, retried on the next open. This is the first consumer of
+       /capabilities, which has been published but unused since v3. */
+    async function optProbeCaps() {
+      if (optCaps === "ok" || optCaps === "pending") return;
+      optCaps = "pending";
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 4000);
+        const r = await fetch(BACKEND_URL + "/capabilities", { cache: "no-store", signal: ctrl.signal });
+        clearTimeout(t);
+        if (!r.ok) { optCaps = "fail"; optRender(); return; }
+        const d = await r.json();
+        const spec = (d && d.options) || {};
+        optCaps = spec.naming ? "ok" : "old";
+        if (spec.max_images && typeof spec.max_images.max === "number") {
+          optMaxCeil = spec.max_images.max;
+          if (optState.max_images > optMaxCeil) { optState.max_images = optMaxCeil; optSave(); }
+        }
+      } catch (e) {
+        optCaps = "fail";
+      }
+      optRender();
+    }
+    optToggle.addEventListener("click", () => { if (optOpen) optProbeCaps(); });
+
+    /* ------------------------------ init ------------------------------ */
+    optState = optLoad();
+    optRender();
+    optReady = true;
   </script>
 </body>
 </html>
