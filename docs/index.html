@@ -610,9 +610,10 @@
     .step-b:disabled { opacity: .3; cursor: not-allowed; }
     .step-b:focus-visible { outline: 0; box-shadow: var(--ring); }
     .step-n {
-      width: 42px; height: 26px; border: 0; outline: 0; padding: 0;
+      width: 46px; height: 26px; border: 0; outline: 0; padding: 0;
       background: transparent; text-align: center;
-      font-family: var(--font-body); font-size: var(--t-sm); font-weight: 600; color: var(--ink);
+      /* the one input the 16px sweep missed — iOS zooms on this too */
+      font-family: var(--font-body); font-size: var(--t-input); font-weight: 600; color: var(--ink);
       font-variant-numeric: tabular-nums;
     }
 
@@ -871,7 +872,7 @@
                          aria-labelledby="optLblAgent" aria-describedby="optAgentHint"
                          autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"
                          data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
-                  <p class="opt-note" id="optAgentHint">Fills the <b>you</b> tag below and is written into the info file. Stays on this device.</p>
+                  <p class="opt-note" id="optAgentHint">Fills the <b>you</b> tag below, and is written into the info file inside the ZIP. Remembered on this device.</p>
                 </div>
 
                 <div class="opt-row opt-row-stack">
@@ -1200,6 +1201,9 @@
       // out. The CTA becomes Stop here too, for the same reason and the same way.
       busy = true; singleAbort = new AbortController(); singleStartedAt = Date.now();
       singleStopped = false;
+      // Otherwise the example path keeps describing the last listing until this
+      // one's meta frame lands — a real name, for the wrong property.
+      optMeta = {}; optRender();
       goLabel.textContent = "Stop"; goBtn.classList.add("is-stop");
       setStatus("", "");
       optLock(true);
@@ -1622,6 +1626,7 @@
         setStatus("Paste at least one PropertyFinder link.", "bad"); urlsInput.focus(); return;
       }
       resetResults("rows");
+      optMeta = {}; optRender();
       queueBuild(parsed.list);
       await queueRun();
     }
