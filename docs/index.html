@@ -802,7 +802,10 @@
 
           if (result.done && (result.done.count || 0) > 0) {
             const msg = result.done;
-            const stem = cleanStem(msg.title) || (msg.filename ? msg.filename.replace(/\.zip$/, "") : "propertyfinder-photos");
+            // Prefer the server's slug so a batch names files exactly the way a
+            // single download does — one listing must not get two spellings.
+            const stem = (msg.filename ? msg.filename.replace(/\.zip$/i, "") : "")
+              || cleanStem(msg.title) || "propertyfinder-photos";
             const name = uniqueName(stem, listingMeta.reference);
             let entry = null;
             if (msg.download) entry = { name, path: msg.download, bytes: null, size: msg.bytes || 0 };
