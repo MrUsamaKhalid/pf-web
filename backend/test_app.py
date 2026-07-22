@@ -10,6 +10,7 @@ these has already caused a real bug once.
 
 import io
 import json
+import re
 import sys
 import zipfile
 
@@ -120,6 +121,85 @@ def test_options():
     check("non-dict payload survives", opts == backend.DEFAULTS and err is None)
 
 
+def test_pattern_parsing():
+    print("\nNaming pattern validation")
+    ok = lambda p: backend.parse_pattern(p)[0]           # noqa: E731
+    notes = lambda p: backend.parse_pattern(p)[1]        # noqa: E731
+
+    eq("default kept", ok("{index}"), "{index}")
+    eq("case-insensitive tokens", ok("{Index}"), "{index}")
+    eq("empty means default", ok(""), backend.DEFAULT_NAME_PATTERN)
+    check("empty is not an error", not notes(""))
+    eq("unknown token rejected", ok("{bogus}-{index}"), backend.DEFAULT_NAME_PATTERN)
+    eq("unmatched brace rejected", ok("{inde-{index}"), backend.DEFAULT_NAME_PATTERN)
+    eq("non-string rejected", ok(None), backend.DEFAULT_NAME_PATTERN)
+    eq("over-long rejected", ok("x" * 200), backend.DEFAULT_NAME_PATTERN)
+    check("missing {index} warns", any("index" in n for n in notes("{listing}")))
+    check("slashes warn", any("folder" in n.lower() for n in notes("a/b{index}")))
+    check("valid multi-token accepted", ok("{ref}-{listing}-{index}") == "{ref}-{listing}-{index}")
+
+
+def test_render_names():
+    print("\nName rendering")
+    meta = {"title": "Spacious 2BR | Full Marina View — Vacant Now",
+            "reference": "AP8297-3", "agent": "Sara Ahmed"}
+
+    def render(pattern, index=1, pad=2, m=None):
+        plan = backend.build_name_plan({"naming": pattern}, m if m is not None else meta, pad)
+        return backend.render_name(plan, index)
+
+    eq("default is the padded index", render("{index}"), "01")
+    eq("ref keeps its case", render("{ref}-{index}"), "AP8297-3-01")
+    check("title folded", render("{listing}-{index}").startswith("Spacious-2BR-Full-Marina-View"),
+          render("{listing}-{index}"))
+    check("date token expands",
+          re.fullmatch(r"\d{4}-\d{2}-\d{2}-01", render("{date}-{index}")) is not None,
+          render("{date}-{index}"))
+
+    # missing sources must not leave debris behind
+    bare = {"title": "", "reference": "", "agent": ""}
+    eq("missing tokens collapse cleanly", render("{listing}-{ref}-{index}", m=bare), "01")
+    eq("leading separator stripped", render("{ref}-{index}", m=bare), "01")
+    eq("all tokens empty falls back to index", render("{listing}{ref}{agent}", m=bare), "01")
+
+    arabic = {"title": "شقة فاخرة في دبي مارينا", "reference": "", "agent": ""}
+    eq("non-Latin title yields the index", render("{listing}-{index}", m=arabic), "01")
+
+    eq("traversal in a pattern is neutralised", render("../../{index}"), "01")
+    eq("drive letter neutralised", render(r"C:\Windows\{index}"), "C-Windows-01")
+    check("emoji stripped", render("{listing}-{index}", m={"title": "🔥 HOT ✅ DEAL"}) == "HOT-DEAL-01",
+          render("{listing}-{index}", m={"title": "🔥 HOT ✅ DEAL"}))
+    eq("NFKD exposes a device name, which is then dodged",
+       render("{listing}", m={"title": "COM²"}), "COM2_")
+    eq("sharp s survives", render("{listing}", m={"title": "Straße"}), "Strasse")
+
+
+def test_unique_arc():
+    print("\nCollision resolution")
+    used = {"_info.txt", "_info.json"}
+    a = backend.unique_arc("property", "villa", "jpg", "s" * 64, used)
+    b = backend.unique_arc("property", "villa", "jpg", "t" * 64, used)
+    c = backend.unique_arc("property", "VILLA", "jpg", "u" * 64, used)
+    eq("first is clean", a, "property/villa.jpg")
+    eq("second disambiguated", b, "property/villa-2.jpg")
+    eq("case-insensitive collision caught", c, "property/VILLA-3.jpg")
+
+    used2 = {"_info.txt", "_info.json"}
+    hit = backend.unique_arc("", "_info", "txt", "s" * 64, used2)
+    check("cannot land on the manifest", hit.lower() != "_info.txt", hit)
+
+    used3 = set()
+    long_arc = backend.unique_arc("property", "x" * 300, "jpg", "s" * 64, used3)
+    check("path budget respected", len(long_arc) <= backend.MAX_ARC_PATH, len(long_arc))
+    long_arc2 = backend.unique_arc("property", "x" * 300, "jpg", "t" * 64, used3)
+    check("disambiguator survives truncation", long_arc2.endswith("-2.jpg"), long_arc2)
+    check("truncated names still differ", long_arc != long_arc2)
+
+    used4 = set()
+    res = backend.unique_arc("", "console"[:3], "jpg", "s" * 64, used4)
+    check("reserved name dodged after clipping", res.lower() != "con.jpg", res)
+
+
 def test_http_contract():
     print("\nHTTP contract")
     c = backend.app.test_client()
@@ -196,6 +276,9 @@ if __name__ == "__main__":
     test_listing_slug()
     test_safe_zip_name()
     test_options()
+    test_pattern_parsing()
+    test_render_names()
+    test_unique_arc()
     test_http_contract()
     if "--live" in sys.argv:
         test_live()
