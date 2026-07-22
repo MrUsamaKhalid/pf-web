@@ -1619,7 +1619,10 @@
     const OPT_NAME_TOKENS = ["you", "listing", "ref", "agent", "date"];
     const OPT_MIN = 1, OPT_STEP = 10;
     const OPT_SEG_MAX = 80, OPT_SLUG_MAX = 48;   // MAX_SEGMENT / SLUG_MAX in app.py
-    const OPT_SAMPLE = { listing: "park-tower-b", ref: "AP8297-3", agent: "Sara Ahmed" };
+    /* Stand-ins used only until the meta frame lands. Deliberately generic:
+   "AP8297-3" and "park-tower-b" looked like real data from a real listing,
+   so the preview appeared to be showing THIS listing when it could not be. */
+    const OPT_SAMPLE = { listing: "listing-title", ref: "REF-1234", agent: "Agent-Name" };
 
     const optEl = $("opt"), optToggle = $("optToggle"), optLive = $("optLive");
     const optSummary = $("optSummary");
@@ -1773,25 +1776,23 @@
        date back is exactly what datetime.now(DUBAI_TZ) does server-side. */
     function optToday() { return new Date(Date.now() + 4 * 3600000).toISOString().slice(0, 10); }
 
-    function optTypedUrl() {
-      const raw = (mode === "single" ? urlInput.value : (urlsInput.value.split(/\s+/)[0] || "")).trim();
-      return isPfUrl(raw) ? raw : "";
-    }
-    /* mirrors listing_slug(meta, url) = slugify(title) or slug_from_url(url) */
+    /* mirrors listing_slug(meta, url) = slugify(title) or slug_from_url(url).
+       The server names this from the listing TITLE, which we do not have until
+       the meta frame arrives — and the URL slug almost never matches it. Rather
+       than assert a folder that will be wrong, show a placeholder until we know.
+       The preview is only worth having if it is true. */
     function optListingSlug() {
-      const fromTitle = optSlugify(optMeta.title || "");
-      if (fromTitle) return fromTitle;
-      const u = optTypedUrl();
-      return (u && optSlugFromUrl(u)) || OPT_SAMPLE.listing;
+      return optSlugify(optMeta.title || "") || OPT_SAMPLE.listing;
     }
     /* mirrors build_name_plan(): {listing} is the sanitised TITLE (case
        preserved, 40 cap) — not the slug. Before the meta frame arrives we
        have no title, so the URL slug stands in. */
     function optNameValues() {
       const fromTitle = optSafeSeg(optMeta.title || "", 40);
-      const u = optTypedUrl();
       return {
-        listing: fromTitle || optSafeSeg((u && optSlugFromUrl(u)) || OPT_SAMPLE.listing, 40),
+        // same rule as the folder: the server expands {listing} from the title,
+        // so before the meta frame we say "unknown" rather than guess wrong
+        listing: fromTitle || optSafeSeg(OPT_SAMPLE.listing, 40),
         ref: optSafeSeg(optMeta.reference || OPT_SAMPLE.ref, 24),
         agent: optSafeSeg(optMeta.agent || OPT_SAMPLE.agent, 24),
         you: optSafeSeg(optState.agent_name || "", 24),
