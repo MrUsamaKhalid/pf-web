@@ -74,11 +74,13 @@ JOB_DEADLINE = 140                    # self-abort before gunicorn's timeout
 ZIP_TTL = 600                         # download token lifetime (seconds)
 
 MAX_CONCURRENT_JOBS = 2
-# Sized for the real workload: a brokerage runs batches of 20-40 listings from
-# one office IP, so a low cap would fail a batch halfway through rather than
-# stopping abuse.
-RATE_CAPACITY = 40                    # jobs per IP...
-RATE_REFILL_PER_SEC = 40 / 3600.0     # ...refilling over an hour
+# Per IP, and a brokerage office is ONE IP behind NAT — ten agents at 40/hour
+# would have been four each. Sized instead for a whole office's real day
+# (~50/hour across everyone, with headroom) while still bounding a runaway
+# script. Bandwidth is not the binding constraint here: ~10 MB a listing against
+# Render's allowance leaves far more room than this cap allows through.
+RATE_CAPACITY = 150                   # jobs per IP...
+RATE_REFILL_PER_SEC = 150 / 3600.0    # ...refilling over an hour
 
 CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

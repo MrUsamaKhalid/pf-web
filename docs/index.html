@@ -962,7 +962,7 @@
     // normal click-it-immediately path pays nothing.
     const ZIP_PREFLIGHT_AFTER = 8 * 60 * 1000;
 
-    async function saveFromUrl(path, name, createdAt) {
+    async function saveFromUrl(path, name, createdAt, fromClick) {
       const url = BACKEND_URL + path + (name ? "?name=" + encodeURIComponent(name) : "");
       const aging = createdAt && (Date.now() - createdAt) > ZIP_PREFLIGHT_AFTER;
       if (aging) {
@@ -977,12 +977,14 @@
       // The server sets Content-Disposition, so the filename has to be asked
       // for here — the download attribute is ignored cross-origin.
       a.href = url; a.rel = "noopener";
-      // Belt as well as braces. The preflight can be skipped (fresh link) or be
-      // inconclusive (offline, CORS), and any response that is NOT a download
-      // would otherwise replace this tab. Targeting a new context means a
-      // download still downloads, while an error can only ever land somewhere
-      // disposable — the queue on this page is never collateral.
-      a.target = "_blank";
+      // Belt as well as braces, but ONLY for a real click. The preflight can be
+      // skipped or inconclusive (offline, CORS), and any response that is not a
+      // download would otherwise replace this tab, taking the queue with it — a
+      // new context means an error lands somewhere disposable instead.
+      // Single mode saves automatically when the stream ends, with no user
+      // gesture behind it, and a browser blocks _blank in that case as a popup.
+      // That path is safe without it: the token is seconds old.
+      if (fromClick) a.target = "_blank";
       document.body.appendChild(a); a.click(); a.remove();
       return true;
     }
@@ -1265,7 +1267,7 @@
         dl.addEventListener("click", async () => {
           if (!item.entry.path) { saveBytes(item.entry.bytes, item.entry.name); return; }
           dl.disabled = true;
-          const ok = await saveFromUrl(item.entry.path, item.entry.name, item.entry.at);
+          const ok = await saveFromUrl(item.entry.path, item.entry.name, item.entry.at, true);
           dl.disabled = false;
           if (!ok) {
             // The link died rather than the listing. Say so on the row and let
@@ -1418,6 +1420,15 @@
       }
       queueAbort = null;
 
+      // Hitting the hourly cap is not this listing's fault, and grinding on
+      // would fail every remaining row for the same reason. Stop, say so once,
+      // and leave the rest retryable.
+      if (result.error && result.code === "rate_limited") {
+        queueStop = true;
+        item.status = "stopped";
+        item.note = "Hourly download limit reached — the rest are still queued";
+        return;
+      }
       if (queueStop && !result.done) {
         item.status = "stopped"; item.note = "Stopped before it finished";
         return;
