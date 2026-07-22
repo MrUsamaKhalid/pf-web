@@ -7,6 +7,9 @@ the full-resolution gallery photos, split into the same tabs the site shows:
     images.property[] (+ images.tower[])  ->  property/   in the ZIP
     images.community[]                    ->  community/  in the ZIP
 
+PropertyFinder server-renders __NEXT_DATA__, so a plain HTTP GET is enough and
+there is no browser anywhere on this path.
+
 Transport (v3): POST /scrape streams NDJSON progress and the final "done" frame
 carries a DOWNLOAD TOKEN, not the file. GET /zip/<token> then streams the real
 archive with Content-Disposition. Images are written to disk as they arrive and
@@ -42,7 +45,7 @@ from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
 
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 
 app = Flask(__name__)
 # Render terminates TLS in front of us; trust one hop so rate limiting sees the
@@ -64,7 +67,6 @@ DOWNLOAD_WORKERS = 10
 DOWNLOAD_ATTEMPTS = 2
 PAGE_ATTEMPTS = 2
 RETRY_BACKOFF = 0.4
-NAV_TIMEOUT = 45_000
 MAX_PER_GROUP = 150
 MAX_TOTAL_BYTES = 100 * 1024 * 1024   # archives stream to disk, so this is a
                                       # bandwidth/disk guard, not a memory one
@@ -586,47 +588,46 @@ def _extract_next_data_json(html):
 
 
 def next_data_via_requests(url):
+    """Returns (data, last_status). The status separates "this listing is gone"
+    from "we were blocked", which are the same failure to the code and very
+    different advice to the person holding the link.
+    """
+    status = None
     for _ in range(PAGE_ATTEMPTS):
         try:
             r = requests.get(url, headers=PAGE_HEADERS, timeout=PAGE_TIMEOUT)
         except requests.RequestException:
             time.sleep(RETRY_BACKOFF)
             continue
+        status = r.status_code
         if r.status_code == 200:
             data = _extract_next_data_json(r.text)
             if data is not None:
-                return data
+                return data, status
+        if r.status_code in (404, 410):
+            return None, status
         time.sleep(RETRY_BACKOFF)
-    return None
+    return None, status
 
 
-_BROWSER_LOCK = threading.Semaphore(1)
+# A headless-Chromium fallback used to live here. It was removed once measured:
+# it never fired across 24 live listings spanning buy/rent and three emirates
+# (all read in about a second), and PropertyFinder server-renders __NEXT_DATA__
+# so there is nothing for a browser to wait for. Worse, it was a liability on
+# this instance — Chromium needs roughly 300 MB on top of gunicorn against
+# Render Starter's 512 MB, so the one time it did fire it would likely OOM and
+# take the whole service down rather than fail a single listing.
+#
+# _STATS makes its absence observable: if PropertyFinder ever starts blocking
+# this IP, direct_fail climbs on /health and the fallback can be restored from
+# git history rather than guessed at.
+_STATS = {"scrapes": 0, "direct_ok": 0, "direct_fail": 0}
+_STATS_LOCK = threading.Lock()
 
 
-def next_data_via_playwright(url):
-    from playwright.sync_api import sync_playwright
-
-    html = None
-    with _BROWSER_LOCK:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage",
-                      "--disable-blink-features=AutomationControlled"],
-            )
-            try:
-                ctx = browser.new_context(user_agent=CHROME_UA, locale="en-US",
-                                          viewport={"width": 1366, "height": 900})
-                page = ctx.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT)
-                try:
-                    page.wait_for_selector("#__NEXT_DATA__", timeout=8_000)
-                except Exception:
-                    pass
-                html = page.content()
-            finally:
-                browser.close()
-    return _extract_next_data_json(html)
+def _stat(key, n=1):
+    with _STATS_LOCK:
+        _STATS[key] = _STATS.get(key, 0) + n
 
 
 # --------------------------------------------------------------------------- #
@@ -980,13 +981,12 @@ def rate_allow(ip):
 # Routes
 # --------------------------------------------------------------------------- #
 def _health_payload():
-    try:
-        import playwright  # noqa: F401
-        browser = True
-    except Exception:
-        browser = False
+    with _STATS_LOCK:
+        stats = dict(_STATS)
+    # Counters are per-process and reset on deploy. They exist to answer one
+    # question without trawling logs: is the direct read still working?
     return {"status": "ok", "service": "propertyfinder-photo-downloader",
-            "version": APP_VERSION, "browser_fallback": browser}
+            "version": APP_VERSION, "reads": stats}
 
 
 @app.route("/", methods=["GET"])
@@ -1087,19 +1087,18 @@ def scrape():
                 yield nd({"type": "notice", "message": note})
 
             yield nd({"type": "log", "message": "Reading listing data"})
-            data = next_data_via_requests(url)
+            _stat("scrapes")
+            data, page_status = next_data_via_requests(url)
+            _stat("direct_ok" if data is not None else "direct_fail")
             if data is None:
-                app.logger.info("playwright fallback engaged for %s", url)
-                yield nd({"type": "log", "message": "Direct read blocked — opening a browser"})
-                try:
-                    data = next_data_via_playwright(url)
-                except Exception:
-                    app.logger.exception("playwright fallback failed")
-                    data = None
-            if data is None:
-                yield nd({"type": "error", "code": "listing_unreadable",
-                          "message": "Could not read this listing. It may be slow or "
-                                     "blocking automated access — try again."})
+                app.logger.warning("direct read failed for %s (status %s)", url, page_status)
+                if page_status in (404, 410):
+                    yield nd({"type": "error", "code": "listing_gone",
+                              "message": "That listing no longer exists on PropertyFinder."})
+                else:
+                    yield nd({"type": "error", "code": "listing_unreadable",
+                              "message": "Could not read this listing right now — "
+                                         "try again in a moment."})
                 return
 
             if not looks_like_listing(data):
