@@ -9,7 +9,9 @@ services:
     runtime: docker
     rootDir: backend
     dockerfilePath: ./Dockerfile
-    plan: free
+    # Starter ($7/mo): the instance never spins down, so there is no ~60s cold
+    # start. Free-tier keep-alive pings cannot deliver this reliably.
+    plan: starter
     autoDeploy: true
     healthCheckPath: /
     envVars:
