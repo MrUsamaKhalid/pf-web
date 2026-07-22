@@ -289,6 +289,7 @@
     @keyframes logIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
     .log-line.on { color: var(--ink); font-weight: 500; }
     .log-line.bad { color: var(--err); }
+    .log-line.note { color: #8a7d55; }
     .log-line .ico { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
     .log-line .ico svg { width: 15px; height: 15px; }
 
@@ -481,6 +482,7 @@
     const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
     const CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     const SPIN = '<span class="spinner"></span>';
+    const INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="#8a7d55" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.5" x2="12" y2="7.6"/></svg>';
 
     let mode = "single";
     let busy = false;
@@ -502,6 +504,19 @@
       a.href = u; a.download = name;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(u), 40000);
+    }
+    // v3 hands back a download token instead of the bytes: the browser fetches
+    // the ZIP straight from the backend, so nothing large ever lives in JS.
+    function saveFromUrl(path) {
+      const a = document.createElement("a");
+      a.href = BACKEND_URL + path;
+      a.rel = "noopener";
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    // Options UI lands in the next pass; until then the backend defaults apply.
+    function currentOptions() {
+      try { return JSON.parse(localStorage.getItem("pf_options") || "{}") || {}; }
+      catch (e) { return {}; }
     }
     function cleanStem(s) {
       return (s || "").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ")
@@ -564,15 +579,31 @@
       resultsEl.scrollTop = resultsEl.scrollHeight;
     }
     function fail(msg) { failLine(); errLine(msg); setStatus(msg, "bad"); }
+    function noteLine(msg) {
+      const li = document.createElement("li");
+      li.className = "log-line note";
+      li.innerHTML = '<span class="ico">' + INFO + '</span><span class="txt"></span>';
+      li.querySelector(".txt").textContent = msg;
+      logEl.appendChild(li);
+      resultsEl.scrollTop = resultsEl.scrollHeight;
+    }
+    function okLine(msg) {
+      const li = document.createElement("li");
+      li.className = "log-line";
+      li.innerHTML = '<span class="ico">' + CHECK + '</span><span class="txt"></span>';
+      li.querySelector(".txt").textContent = msg;
+      logEl.appendChild(li);
+      resultsEl.scrollTop = resultsEl.scrollHeight;
+    }
 
     /* ------------------------- shared scrape engine ------------------------- */
-    async function streamScrape(url, cb, signal) {
+    async function streamScrape(url, cb, signal, options) {
       let res;
       try {
         res = await fetch(BACKEND_URL + "/scrape", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url, options: options || currentOptions() }),
           signal,
         });
       } catch (e) {
@@ -590,8 +621,10 @@
       let finished = false;
       const handle = (m) => {
         if (m.type === "log") { cb.log && cb.log(m.message); }
+        else if (m.type === "notice") { (cb.notice || cb.log) && (cb.notice || cb.log)(m.message); }
+        else if (m.type === "meta") { cb.meta && cb.meta(m); }
         else if (m.type === "progress") { cb.progress && cb.progress(m.done, m.total); }
-        else if (m.type === "error") { finished = true; cb.error(m.message); }
+        else if (m.type === "error") { finished = true; cb.error(m.message, m.code); }
         else if (m.type === "done") { finished = true; cb.done(m); }
       };
       try {
@@ -635,24 +668,28 @@
       try {
         await streamScrape(url, {
           log: (m) => { clearTimeout(wake); step(m); },
+          notice: (m) => { clearTimeout(wake); finishLine(); noteLine(m); activeLine = null; },
           progress: (d, t) => { clearTimeout(wake); stepProgress(d, t); },
           error: (m) => { clearTimeout(wake); fail(m); },
           done: (msg) => {
             clearTimeout(wake); finishLine();
             barWrap.hidden = false; barFill.style.width = "100%";
+            const name = msg.filename || "propertyfinder-photos.zip";
             try {
-              const name = (msg.filename || "propertyfinder-photos.zip");
-              saveBytes(b64ToBytes(msg.zip), name);
-              const summary = (typeof msg.property === "number" && typeof msg.community === "number")
-                ? msg.property + " property + " + msg.community + " community (" + msg.count + " photos)"
-                : msg.count + " photos";
-              const li = document.createElement("li");
-              li.className = "log-line";
-              li.innerHTML = '<span class="ico">' + CHECK + '</span><span class="txt"></span>';
-              li.querySelector(".txt").textContent = "Saved " + name;
-              logEl.appendChild(li);
-              setStatus("Done — " + summary, "ok");
-            } catch (e) { fail("Could not save the ZIP. Please try again."); }
+              // v3 sends a token; older backends still send base64. Pages and
+              // Render deploy independently, so both paths must work.
+              if (msg.download) saveFromUrl(msg.download);
+              else if (msg.zip) saveBytes(b64ToBytes(msg.zip), name);
+              else throw new Error("no payload");
+            } catch (e) { fail("Could not save the ZIP. Please try again."); return; }
+
+            const summary = (typeof msg.property === "number" && typeof msg.community === "number")
+              ? msg.property + " property + " + msg.community + " community (" + msg.count + " photos)"
+              : msg.count + " photos";
+            okLine("Saved " + name);
+            if (msg.failed) noteLine(msg.failed + " photo(s) could not be downloaded");
+            setStatus((msg.truncated ? "Partly done — " : "Done — ") + summary,
+                      msg.truncated ? "" : "ok");
           },
         });
       } finally {
@@ -716,13 +753,15 @@
           if (result.done && (result.done.count || 0) > 0) {
             const msg = result.done;
             const stem = cleanStem(msg.title) || (msg.filename ? msg.filename.replace(/\.zip$/, "") : "propertyfinder-photos");
-            let bytes = null;
-            try { bytes = b64ToBytes(msg.zip); } catch (e) {}
-            if (bytes) {
-              collected.push({ name: stem + ".zip", bytes });
+            const name = stem + ".zip";
+            let entry = null;
+            if (msg.download) entry = { name, path: msg.download, bytes: null, size: msg.bytes || 0 };
+            else if (msg.zip) { try { entry = { name, path: null, bytes: b64ToBytes(msg.zip), size: msg.bytes || 0 }; } catch (e) {} }
+            if (entry) {
+              collected.push(entry);
               const dl = document.createElement("button");
               dl.className = "chip-btn"; dl.type = "button"; dl.textContent = "Download";
-              dl.addEventListener("click", () => saveBytes(bytes, stem + ".zip"));
+              dl.addEventListener("click", () => entry.path ? saveFromUrl(entry.path) : saveBytes(entry.bytes, entry.name));
               acts.appendChild(dl);
             }
             const open = document.createElement("a");
@@ -743,20 +782,42 @@
         busy = false; goBtn.disabled = false;
       }
 
-      setStatus("Done — " + ok + " of " + list.length + " downloaded" + (failed ? " · " + failed + " failed" : ""), ok ? "ok" : "bad");
+      const hosted = collected.some((c) => c.path);
+      setStatus("Done — " + ok + " of " + list.length + " downloaded"
+        + (failed ? " · " + failed + " failed" : "")
+        + (hosted ? " · links stay live for 10 minutes" : ""), ok ? "ok" : "bad");
 
-      if (collected.length && window.fflate) {
+      // Combining pulls every archive back into memory, so only offer it when
+      // the total is small enough to survive it.
+      const MAX_COMBINE = 200 * 1024 * 1024;
+      const totalBytes = collected.reduce((n, c) => n + (c.size || 0), 0);
+      if (collected.length > 1 && window.fflate && totalBytes < MAX_COMBINE) {
         zipAllBtn.hidden = false;
-        zipAllBtn.textContent = "Download all " + collected.length + " as one ZIP";
-        zipAllBtn.onclick = () => {
-          const files = {}; const used = Object.create(null);
-          collected.forEach((c) => {
-            let n = c.name, k = 1;
-            while (used[n]) { k++; n = c.name.replace(/\.zip$/, "") + " (" + k + ").zip"; }
-            used[n] = 1; files[n] = c.bytes;
-          });
-          try { saveBytes(window.fflate.zipSync(files, { level: 0 }), "propertyfinder-batch-" + collected.length + ".zip"); }
-          catch (e) { setStatus("Couldn't build the combined ZIP — use the per-row Download buttons.", "bad"); }
+        const label = "Download all " + collected.length + " as one ZIP";
+        zipAllBtn.textContent = label;
+        zipAllBtn.onclick = async () => {
+          zipAllBtn.disabled = true;
+          zipAllBtn.textContent = "Building combined ZIP…";
+          try {
+            const files = {}; const used = Object.create(null);
+            for (const c of collected) {
+              let bytes = c.bytes;
+              if (!bytes && c.path) {
+                const r = await fetch(BACKEND_URL + c.path, { cache: "no-store" });
+                if (!r.ok) throw new Error("expired");
+                bytes = new Uint8Array(await r.arrayBuffer());
+              }
+              let n = c.name, k = 1;
+              while (used[n]) { k++; n = c.name.replace(/\.zip$/, "") + " (" + k + ").zip"; }
+              used[n] = 1; files[n] = bytes;
+            }
+            saveBytes(window.fflate.zipSync(files, { level: 0 }),
+                      "propertyfinder-batch-" + collected.length + ".zip");
+          } catch (e) {
+            setStatus("Couldn't build the combined ZIP — use the per-row Download buttons.", "bad");
+          } finally {
+            zipAllBtn.disabled = false; zipAllBtn.textContent = label;
+          }
         };
       }
     }
