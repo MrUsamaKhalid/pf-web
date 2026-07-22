@@ -28,14 +28,19 @@
       --card: #fefefe;
       --ink: #111111;
       --soft: #3f4651;
-      --muted: #6b7280;
-      --faint: #9aa0a6;
+      --muted: #5b616d;
+      --faint: #697178;
       --field: #f3f4f6;
       --line: #ededf0;
       --pf: #ef5e4e;
-      --pf-dark: #e0492f;
+      --pf-dark: #d93c20;
       --pf-soft: rgba(239, 94, 78, 0.12);
-      --ok: #1f9d57;
+      --ok: #1b874b;
+      /* Text colours are pinned to WCAG 1.4.3 AA on #fefefe, computed not
+         eyeballed: ink 18.7, soft 9.4, muted 6.2, faint 4.9, coral 4.5, ok 4.5.
+         The old faint (#9aa0a6) was 2.62 and carried real words — row status,
+         the folder in the example path, the "index" chip. This app is read on a
+         phone in Dubai sun; do not lighten these back for looks. */
       --warn: #e0a32c;
       --err: #c0392b;
 
@@ -289,7 +294,7 @@
     @keyframes logIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
     .log-line.on { color: var(--ink); font-weight: 500; }
     .log-line.bad { color: var(--err); }
-    .log-line.note { color: #8a7d55; }
+    .log-line.note { color: #817550; }
     .log-line .ico { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
     .log-line .ico svg { width: 15px; height: 15px; }
 
@@ -510,7 +515,7 @@
     .opt-row.opt-row-stack { flex-direction: column; align-items: stretch; gap: var(--s2); }
     .opt-label { font-size: var(--t-sm); font-weight: 500; color: var(--soft); line-height: 1.2; }
     .opt-note { margin: calc(var(--s2) * -1) 0 0; font-size: var(--t-xs); line-height: 1.45; color: var(--muted); }
-    .opt-note-warn { color: #8a7d55; }   /* the .log-line.note amber, line 292 */
+    .opt-note-warn { color: #817550; }   /* the .log-line.note amber, line 292 */
     .opt-sep { height: var(--stroke); background: var(--line); }
 
     /* ---- mini segmented control: the sanctioned .seg idiom at 34px ----
@@ -925,7 +930,7 @@
     const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
     const CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     const SPIN = '<span class="spinner"></span>';
-    const INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="#8a7d55" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.5" x2="12" y2="7.6"/></svg>';
+    const INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="#817550" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.5" x2="12" y2="7.6"/></svg>';
 
     let mode = "single";
     let busy = false;
