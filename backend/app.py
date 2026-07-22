@@ -397,6 +397,13 @@ def parse_pattern(raw):
     return pattern, notices
 
 
+def _english_list(items, conj):
+    """a / a and b / a, b and c — the app writes sentences, not arrays."""
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} {conj} {items[-1]}"
+
+
 def naming_notes(pattern, meta, opts=None):
     """One notice per job for tokens that cannot be filled — said once."""
     notes = []
@@ -407,15 +414,20 @@ def naming_notes(pattern, meta, opts=None):
         notes.append("Your name is blank in options, so {you} was left out of "
                      "the file names.")
     missing = []
-    for token, key, human in (("{listing}", "title", "a usable title"),
-                              ("{ref}", "reference", "an agency reference"),
-                              ("{agent}", "agent", "an agent name")):
+    # bare nouns: "has no" already supplies the article, and "has no a title"
+    # is what the articled version produced
+    for token, key, human in (("{listing}", "title", "title"),
+                              ("{ref}", "reference", "agency reference"),
+                              ("{agent}", "agent", "agent name")):
         if token in pattern and not safe_segment(meta.get(key) or "",
                                                  TOKEN_MAX[token[1:-1]]):
             missing.append((token, human))
     if missing:
-        notes.append(f"This listing has no {' or '.join(h for _, h in missing)} — "
-                     f"{', '.join(t for t, _ in missing)} was left out of the file names.")
+        nouns = _english_list([h for _, h in missing], "or")
+        toks = _english_list([t for t, _ in missing], "and")
+        verb = "was" if len(missing) == 1 else "were"
+        notes.append(f"This listing has no {nouns} — {toks} {verb} left out of "
+                     "the file names.")
     return notes
 
 
