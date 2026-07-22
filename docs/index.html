@@ -1384,7 +1384,12 @@
         return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA");
       };
       stage.addEventListener("mousemove", (e) => {
-        if (typing() || (e.target.closest && e.target.closest("input, textarea, button, a"))) {
+        // .opt is listed whole: its labels, hints and separators are not
+        // controls, so without it the card tilts while you aim at a 34px
+        // switch. Suppress the tilt HERE rather than stopping propagation at
+        // the panel — this listener is not the only one upstream, and killing
+        // the event also froze the custom cursor.
+        if (typing() || (e.target.closest && e.target.closest("input, textarea, button, a, .opt"))) {
           card.classList.remove("lift"); card.style.transform = ""; return;
         }
         const r = card.getBoundingClientRect();
@@ -1451,7 +1456,6 @@
     const optNames = $("optNames"), optCapNote = $("optCapNote"), optAgent = $("optAgent");
     const optDelivery = $("optDelivery"), optDeliveryRow = $("optDeliveryRow"), optDeliverySep = $("optDeliverySep");
     const optMemo = $("optMemo"), optReset = $("optReset");
-    const optCardEl = $("card");
 
     let optState = null;
     let optOpen = false, optWritable = true, optRestored = false, optReady = false;
@@ -1856,14 +1860,11 @@
       optRender();
     }
 
-    /* The tilt handler on .stage only stands down for input/textarea/button/a,
-       so a row label or the panel's whitespace would rock the whole card while
-       the user aims at a 34px control. Swallow it here and flatten the card. */
-    optEl.addEventListener("mousemove", (e) => {
-      e.stopPropagation();
-      optCardEl.classList.remove("lift");
-      optCardEl.style.transform = "";
-    });
+    /* Tilt suppression for this panel lives in the motion layer's own opt-out
+       list (".opt"). It must NOT be done by stopping propagation here: the
+       window-level mousemove that drives the custom cursor sits upstream, so
+       swallowing the event froze the cursor dot and ring over the whole
+       control. */
 
     /* the summary must stay honest across the compact breakpoint */
     const optNarrow = window.matchMedia("(max-width: 420px)");
