@@ -22,7 +22,7 @@ GET  /              health
 GET  /health        health
 GET  /capabilities  option spec + limits (the frontend renders controls from this)
 POST /scrape        NDJSON stream: log | meta | notice | progress | error | done
-GET  /zip/<token>   the assembled ZIP (single use, 10 minute TTL)
+GET  /zip/<token>   the assembled ZIP (re-usable until the TTL expires)
 """
 
 import os
@@ -71,7 +71,12 @@ MAX_PER_GROUP = 150
 MAX_TOTAL_BYTES = 100 * 1024 * 1024   # archives stream to disk, so this is a
                                       # bandwidth/disk guard, not a memory one
 JOB_DEADLINE = 140                    # self-abort before gunicorn's timeout
-ZIP_TTL = 600                         # download token lifetime (seconds)
+# A 40-listing batch runs about 13 minutes at the measured 18-21s each, so a
+# 10-minute token meant row 1's download died before the batch that produced it
+# had finished — and the user only discovers that by clicking. Half an hour
+# covers the longest realistic batch plus time to actually save the files.
+# Disk is bounded by the sweep plus MAX_TOTAL_BYTES per job.
+ZIP_TTL = 1800                        # download token lifetime (seconds)
 
 MAX_CONCURRENT_JOBS = 2
 # Per IP, and a brokerage office is ONE IP behind NAT — ten agents at 40/hour
