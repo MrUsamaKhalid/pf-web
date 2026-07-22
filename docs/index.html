@@ -47,6 +47,9 @@
       --r-pill: 999px;
       --stroke: 1px;
       --w-card: 520px;
+      /* one formation: every primary control is the same height + radius */
+      --h-control: 56px;
+      --r-control: 16px;
 
       --t-xs: 12px; --t-sm: 13px; --t-md: 15px; --t-lg: 17px; --t-xl: 25px;
 
@@ -172,24 +175,35 @@
     /* ============================ segmented control ============================ */
     .seg {
       display: grid; grid-template-columns: 1fr 1fr; gap: var(--s1);
-      background: var(--field); border-radius: var(--r-pill); padding: var(--s1);
-      margin-bottom: var(--s4);
+      height: var(--h-control);
+      background: var(--field); border-radius: var(--r-control); padding: var(--s1);
+      margin-bottom: var(--s3);
     }
     .seg-btn {
       appearance: none; border: 0; background: transparent; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+      height: 100%; padding: 0 var(--s3);
       font-family: var(--font-body); font-size: var(--t-sm); font-weight: 600; color: var(--muted);
-      padding: 10px var(--s3); border-radius: var(--r-pill);
-      transition: background var(--d) var(--ease), color var(--d) var(--ease);
+      border-radius: calc(var(--r-control) - var(--s1));
+      transition: background var(--d) var(--ease), color var(--d) var(--ease), box-shadow var(--d) var(--ease);
     }
     .seg-btn:hover { color: var(--ink); }
-    .seg-btn[aria-selected="true"] { background: var(--ink); color: #fff; }
+    /* selected = lifted white chip with a coral marker (black stays reserved for the CTA) */
+    .seg-btn[aria-selected="true"] {
+      background: #fff; color: var(--ink);
+      box-shadow: 0 1px 2px rgba(17,17,17,.05), 0 6px 14px -8px rgba(17,17,17,.22);
+    }
+    .seg-btn[aria-selected="true"]::before {
+      content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--pf);
+    }
 
     /* ============================ fields ============================ */
     .field {
       display: flex; align-items: center; gap: var(--s2);
+      height: var(--h-control);
       background: var(--field);
-      border: 1.5px solid transparent; border-radius: var(--r-field);
-      padding: var(--s1) var(--s1) var(--s1) var(--s4);
+      border: 1.5px solid transparent; border-radius: var(--r-control);
+      padding: 0 6px 0 var(--s4);
       transition: border-color var(--d) var(--ease), box-shadow var(--d) var(--ease), background var(--d) var(--ease);
     }
     .field:focus-within { background: #fff; border-color: var(--pf); box-shadow: 0 0 0 3px var(--pf-soft); }
@@ -197,9 +211,9 @@
     .field:focus-within .lead { color: var(--pf); }
     .field .lead svg { width: 18px; height: 18px; }
     .field input {
-      flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+      flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent;
       font-family: var(--font-body); font-size: var(--t-md); color: var(--ink);
-      padding: var(--s3) 0;
+      padding: 0;
     }
     .field input::placeholder { color: #aeb4bd; }
 
@@ -207,7 +221,7 @@
       flex: none; display: inline-flex; align-items: center; gap: 6px;
       border: 0; background: transparent; color: var(--muted); cursor: pointer;
       font-family: var(--font-body); font-size: var(--t-sm); font-weight: 500;
-      padding: 9px var(--s3); border-radius: 12px;
+      height: 44px; padding: 0 var(--s3); border-radius: 12px;
       transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease), transform var(--d-fast) var(--ease-spring);
     }
     .ghost-btn:hover { background: var(--pf-soft); color: var(--pf-dark); transform: translateY(-1px); }
@@ -216,7 +230,7 @@
 
     .area {
       width: 100%; min-height: 128px; resize: vertical; display: block;
-      background: var(--field); border: 1.5px solid transparent; border-radius: var(--r-field);
+      background: var(--field); border: 1.5px solid transparent; border-radius: var(--r-control);
       padding: var(--s3) var(--s4);
       font-family: var(--font-body); font-size: var(--t-sm); line-height: 1.6; color: var(--ink);
       outline: 0;
@@ -230,12 +244,12 @@
     .cta {
       position: relative; overflow: hidden; width: 100%;
       display: flex; align-items: center; justify-content: center; gap: var(--s2);
-      padding: var(--s4);
+      height: var(--h-control); padding: 0 var(--s5);
       font-family: var(--font-display); font-size: var(--t-lg); font-weight: 600; letter-spacing: .01em;
-      color: #fff; background: var(--ink); border: 0; border-radius: var(--r-pill); cursor: pointer;
+      color: #fff; background: var(--ink); border: 0; border-radius: var(--r-control); cursor: pointer;
       box-shadow: 0 16px 32px -16px rgba(17,17,17,.55);
       transition: box-shadow var(--d) var(--ease), opacity var(--d) var(--ease);
-      margin-top: var(--s5);
+      margin-top: var(--s3);
     }
     .cta:hover { box-shadow: 0 22px 44px -16px rgba(214,54,31,.5); }
     .cta .fill {
@@ -307,7 +321,8 @@
     .status.ok { color: var(--ok); font-weight: 600; }
     .status.bad { color: var(--err); font-weight: 500; }
 
-    .zip-all { width: 100%; margin-top: var(--s3); padding: var(--s3); font-family: var(--font-display); font-weight: 600; font-size: var(--t-md); color: #fff; background: var(--ink); border: 0; border-radius: var(--r-pill); cursor: pointer; transition: background var(--d) var(--ease), transform var(--d-fast) var(--ease-spring); }
+    .zip-all { width: 100%; height: var(--h-control); margin-top: var(--s3); padding: 0 var(--s5); font-family: var(--font-display); font-weight: 600; font-size: var(--t-md); color: var(--ink); background: #fff; border: 1.5px solid var(--line); border-radius: var(--r-control); cursor: pointer; transition: border-color var(--d) var(--ease), background var(--d) var(--ease), transform var(--d-fast) var(--ease-spring); }
+    .zip-all:hover { border-color: var(--pf); background: var(--pf-soft); color: var(--pf-dark); transform: translateY(-2px); }
     .zip-all:hover { background: #000; transform: translateY(-2px); }
     .zip-all:active { transform: translateY(0) scale(.98); }
 
