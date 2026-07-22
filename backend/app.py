@@ -77,6 +77,10 @@ JOB_DEADLINE = 140                    # self-abort before gunicorn's timeout
 # covers the longest realistic batch plus time to actually save the files.
 # Disk is bounded by the sweep plus MAX_TOTAL_BYTES per job.
 ZIP_TTL = 1800                        # download token lifetime (seconds)
+# ...and a ceiling on what those live tokens may hold. Thirty minutes at the
+# rate cap is far more than this container's disk, so age is not a bound on its
+# own; over budget, the oldest links are evicted first.
+MAX_STORE_BYTES = 1500 * 1024 * 1024
 
 MAX_CONCURRENT_JOBS = 2
 # Per IP, and a brokerage office is ONE IP behind NAT — ten agents at 40/hour
@@ -940,23 +944,49 @@ _ZIPS = {}
 _ZIPS_LOCK = threading.Lock()
 
 
+def _drop(token):
+    """Caller must hold _ZIPS_LOCK."""
+    entry = _ZIPS.pop(token, None)
+    if entry:
+        try:
+            os.remove(entry["path"])
+        except OSError:
+            pass
+        return entry.get("bytes", 0)
+    return 0
+
+
 def sweep_zips():
+    """Expire by age, then by total size.
+
+    Age alone is not a bound: at the rate cap, half an hour of archives is
+    several gigabytes of a container whose disk is neither large nor persistent.
+    When the store is over budget the oldest links go first — they are the ones
+    whose owner has most likely finished with them.
+    """
     now = time.time()
     with _ZIPS_LOCK:
-        dead = [t for t, v in _ZIPS.items() if v["expires"] < now]
-        for t in dead:
-            entry = _ZIPS.pop(t, None)
-            if entry:
-                try:
-                    os.remove(entry["path"])
-                except OSError:
-                    pass
+        for token in [t for t, v in _ZIPS.items() if v["expires"] < now]:
+            _drop(token)
+
+        total = sum(v.get("bytes", 0) for v in _ZIPS.values())
+        if total <= MAX_STORE_BYTES:
+            return
+        for token, _v in sorted(_ZIPS.items(), key=lambda kv: kv[1]["expires"]):
+            total -= _drop(token)
+            app.logger.info("evicting download token early; store over budget")
+            if total <= MAX_STORE_BYTES:
+                break
 
 
 def register_zip(path, filename):
     token = uuid.uuid4().hex
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = 0
     with _ZIPS_LOCK:
-        _ZIPS[token] = {"path": path, "filename": filename,
+        _ZIPS[token] = {"path": path, "filename": filename, "bytes": size,
                         "expires": time.time() + ZIP_TTL}
     return token
 
