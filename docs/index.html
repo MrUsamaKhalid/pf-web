@@ -965,7 +965,7 @@
 
     let mode = "single";
     let busy = false;
-    let singleAbort = null, singleStartedAt = 0;
+    let singleAbort = null, singleStartedAt = 0, singleStopped = false;
     let activeLine = null;
 
     /* ------------------------------ helpers ------------------------------ */
@@ -1199,6 +1199,7 @@
       // AbortController on its path at all, so a wrong link meant watching it
       // out. The CTA becomes Stop here too, for the same reason and the same way.
       busy = true; singleAbort = new AbortController(); singleStartedAt = Date.now();
+      singleStopped = false;
       goLabel.textContent = "Stop"; goBtn.classList.add("is-stop");
       setStatus("", "");
       optLock(true);
@@ -1217,7 +1218,11 @@
           // specimen into this user's actual filename
           meta: (m) => optAdoptMeta(m),
           progress: (d, t) => { clearTimeout(wake); stepProgress(d, t); },
-          error: (m) => { clearTimeout(wake); fail(m); },
+          error: (m) => {
+            clearTimeout(wake);
+            if (singleStopped) { failLine(); setStatus("Stopped.", ""); return; }
+            fail(m);
+          },
           done: (msg) => {
             clearTimeout(wake); finishLine();
             optNoteDone(msg);
@@ -1656,7 +1661,10 @@
       if (busy) {
         // same double-tap guard as the queue: the label flips to Stop instantly
         if (singleAbort && Date.now() - singleStartedAt > 700) {
-          setStatus("Stopped.", "");
+          // Mark it BEFORE aborting: the stream's catch cannot tell a user's
+          // stop from a timeout, and reporting "Timed out." for a button the
+          // user just pressed is exactly the kind of lie this app keeps out.
+          singleStopped = true;
           try { singleAbort.abort(); } catch (e) {}
         }
         return;
