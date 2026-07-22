@@ -32,6 +32,7 @@ import zipfile
 import hashlib
 import tempfile
 import threading
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, quote
 
@@ -198,6 +199,26 @@ def host_ok(url):
         return False
 
 
+_WIN_RESERVED = {
+    "con", "prn", "aux", "nul", "clock$",
+    *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10)),
+}
+
+
+def slugify(text, max_len=70):
+    """Filename-safe slug from arbitrary text.
+
+    Listing titles are agent-authored and full of pipes, emoji and Arabic, so
+    everything outside [a-z0-9-] goes. Non-Latin titles reduce to empty here;
+    callers fall back to the URL slug rather than shipping a blank name.
+    """
+    s = unicodedata.normalize("NFKD", text or "")
+    s = s.encode("ascii", "ignore").decode("ascii").lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s[:max_len].strip("-")
+
+
 def slug_from_url(url):
     try:
         path = urlparse(url).path
@@ -208,10 +229,40 @@ def slug_from_url(url):
         return "propertyfinder-photos"
     last = re.sub(r"\.\w+$", "", segments[-1]).lower()
     last = re.sub(r"[\s_]+", "-", last)
+    # The trailing digits are the listing id. Stripping them made every unit in
+    # the same building collapse to one identical name, so four downloads from
+    # one tower arrived as "name.zip", "name (1).zip", "name (2).zip".
     last = re.sub(r"[^a-z0-9\-]", "", last)
-    last = re.sub(r"-\d+$", "", last)
     last = re.sub(r"-{2,}", "-", last).strip("-")
     return last or "propertyfinder-photos"
+
+
+def listing_slug(meta, url):
+    """The listing's identity for filenames: its title, else the URL."""
+    s = slugify(meta.get("title") or "") or slug_from_url(url)
+    # Also guards the by_listing folder name — Windows refuses these as
+    # directories too, not just as files.
+    if s.lower() in _WIN_RESERVED:
+        s += "-listing"
+    return s
+
+
+def safe_zip_name(requested):
+    """Sanitise a client-supplied archive name.
+
+    The client picks the name so a batch can guarantee unique ones, but it is
+    still untrusted input that ends up in a Content-Disposition header and then
+    on someone's filesystem.
+    """
+    if not isinstance(requested, str):
+        return None
+    name = requested.replace("\\", "/").split("/")[-1]
+    name = "".join(ch for ch in name if ch >= " " and ch not in '<>:"|?*\x7f')
+    name = re.sub(r"\.zip$", "", name, flags=re.I)
+    name = name.strip().strip(".").strip()
+    if not name or name.lower() in _WIN_RESERVED:
+        return None
+    return name[:120].strip() + ".zip"
 
 
 def is_image_head(head, content_type):
@@ -683,6 +734,9 @@ def get_zip(token):
                         "code": "expired"}), 404
 
     path, filename = entry["path"], entry["filename"]
+    # A batch knows all of its names at once, so it - not the server - is the
+    # only party that can guarantee they do not collide.
+    filename = safe_zip_name(request.args.get("name")) or filename
     size = os.path.getsize(path)
 
     def stream():
@@ -773,7 +827,7 @@ def scrape():
                 return
 
             meta = extract_meta(data)
-            slug = slug_from_url(url)
+            slug = listing_slug(meta, url)
             if meta.get("title"):
                 yield nd({"type": "log", "message": "Listing: " + meta["title"]})
             bits = []
