@@ -21,7 +21,9 @@ Endpoints
 GET  /              health
 GET  /health        health
 GET  /capabilities  option spec + limits (the frontend renders controls from this)
+GET  /agent         every live listing for one agent, by profile link or id
 POST /scrape        NDJSON stream: log | meta | notice | progress | error | done
+POST /bundle        merge finished archives into one, server-side
 GET  /zip/<token>   the assembled ZIP (re-usable until the TTL expires)
 """
 
@@ -170,7 +172,7 @@ OPTION_SPEC = {
                     "label": "Property photo format",
                     "note": "Community photos are always JPEG."},
     "structure":   {"type": "enum", "default": "grouped",
-                    "values": ["grouped", "flat", "by_listing"],
+                    "values": ["grouped", "flat", "by_listing", "by_reference"],
                     "label": "Folder structure"},
     "max_images":  {"type": "int", "default": 80, "min": 1, "max": MAX_PER_GROUP,
                     "label": "Max photos per gallery"},
@@ -935,7 +937,7 @@ def download_to(dest_path, candidates, want_jpeg):
     return None
 
 
-def folder_for(group, opts, slug):
+def folder_for(group, opts, slug, reference=""):
     """Folders stay the app's own vocabulary — the naming pattern only ever
     names the file — so no user input can reach a directory component and a
     "../" has nothing to escape. The slug is re-sanitised anyway: it comes from
@@ -943,6 +945,11 @@ def folder_for(group, opts, slug):
     """
     if opts["structure"] == "flat":
         return ""
+    if opts["structure"] == "by_reference":
+        # The agency reference is what an agent files by — "sykon-R-2250" is the
+        # string they search their CRM for. Case is preserved for that reason.
+        top = safe_segment(reference, SLUG_MAX) or slugify(slug, SLUG_MAX) or "listing"
+        return f"{top}/{group}" if group else top
     if opts["structure"] == "by_listing":
         listing = slugify(slug, SLUG_MAX) or "listing"
         return f"{listing}/{group}" if group else listing
@@ -1042,6 +1049,256 @@ def _health_payload():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify(_health_payload())
+
+
+# --------------------------------------------------------------------------- #
+# Agents
+# --------------------------------------------------------------------------- #
+# The agent page renders only its first ten listings and paginates in the
+# browser, but the same data comes from the site's own PWA search endpoint with
+# an agent filter — and a raised limit returns a whole portfolio in one call.
+PF_SEARCH_API = "https://www.propertyfinder.ae/api/pwa/property/search"
+AGENT_PAGE_SIZE = 50
+AGENT_MAX_LISTINGS = 120
+# 2 is residential rent, 1 is residential sale — the two an agent actually has.
+AGENT_CATEGORIES = ((2, "rent"), (1, "buy"))
+AGENT_ID_RE = re.compile(r"(\d{3,})\s*$")
+
+
+def parse_agent_query(raw):
+    """Accept a profile URL, a slug-with-id, or a bare id.
+
+    Agents paste whatever is in front of them: the address bar, the tail of it,
+    or the number a colleague sent on WhatsApp. All three mean the same agent.
+    """
+    q = (raw or "").strip()
+    if not q:
+        return None
+    if q.startswith(("http://", "https://")):
+        if not host_ok(q):
+            return None
+        q = urlparse(q).path.rstrip("/").split("/")[-1]
+    q = q.strip().strip("/")
+    m = AGENT_ID_RE.search(q)
+    return m.group(1) if m else None
+
+
+def agent_listings(agent_id, category, limit=AGENT_PAGE_SIZE):
+    """One category of an agent's live listings. Returns (items, total)."""
+    params = {
+        "sorting.sort": "featured",
+        "filters.category_id": str(category),
+        "filters.furnished": "all",
+        "filters.price_type": "price_type_any",
+        "filters.utilities_price_type": "notSelected",
+        "filters.agent_id": str(agent_id),
+        "pagination.limit": str(limit),
+        "pagination.page": "1",
+        "locale": "en",
+    }
+    headers = dict(PAGE_HEADERS)
+    headers["Accept"] = "application/json"
+    headers["Referer"] = "https://www.propertyfinder.ae/en/"
+    try:
+        r = requests.get(PF_SEARCH_API, params=params, headers=headers, timeout=PAGE_TIMEOUT)
+    except requests.RequestException:
+        return [], 0
+    if r.status_code != 200:
+        return [], 0
+    try:
+        data = r.json()
+    except ValueError:
+        return [], 0
+
+    out = []
+    for row in data.get("listings", []):
+        prop = row.get("property") if isinstance(row, dict) else None
+        if not isinstance(prop, dict):
+            continue
+        url = prop.get("share_url") or ""
+        if not url and prop.get("details_path"):
+            url = "https://www.propertyfinder.ae" + prop["details_path"]
+        # the same guard the scraper uses; this list feeds straight into it
+        if not url or not host_ok(url):
+            continue
+        price = prop.get("price") or {}
+        out.append({
+            "url": url,
+            "reference": prop.get("reference") or "",
+            "title": (prop.get("title") or "").strip(),
+            "offering": category_label(category),
+            "id": str(prop.get("id") or ""),
+            "price": price.get("value"),
+            "currency": price.get("currency"),
+            "bedrooms": prop.get("bedrooms"),
+            "photos": prop.get("images_count"),
+        })
+    meta = data.get("meta") or {}
+    return out, meta.get("total_count", len(out))
+
+
+def category_label(category):
+    return "rent" if str(category) == "2" else "buy"
+
+
+def agent_profile(agent_id):
+    """Name and per-category counts, straight from the agent's own page."""
+    url = f"https://www.propertyfinder.ae/en/agent/x-{agent_id}"
+    data, _status = next_data_via_requests(url)
+    try:
+        a = data["props"]["pageProps"]["agent"]
+    except (KeyError, TypeError):
+        return {}
+    broker = a.get("broker") or {}
+    return {
+        "name": (a.get("name") or "").strip(),
+        "id": str(a.get("id") or agent_id),
+        "slug": a.get("slug") or "",
+        "brokerage": (broker.get("name") or "").strip(),
+        "total": a.get("totalProperties"),
+    }
+
+
+@app.route("/agent", methods=["GET", "OPTIONS"])
+def agent_lookup():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    agent_id = parse_agent_query(request.args.get("q"))
+    if not agent_id:
+        return jsonify({"error": "Paste an agent's PropertyFinder profile link or their ID.",
+                        "code": "bad_agent"}), 400
+
+    client_ip = request.headers.get(
+        "X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    if not rate_allow(client_ip):
+        return jsonify({"error": "Too many lookups from this connection. Try again later.",
+                        "code": "rate_limited"}), 429, {"Retry-After": "300"}
+
+    listings, seen = [], set()
+    counts = {}
+    for category, label in AGENT_CATEGORIES:
+        items, total = agent_listings(agent_id, category)
+        counts[label] = total
+        for item in items:
+            if item["url"] in seen:
+                continue
+            seen.add(item["url"])
+            listings.append(item)
+
+    if not listings:
+        return jsonify({"error": "No live listings found for that agent — check the link or ID.",
+                        "code": "agent_empty"}), 404
+
+    truncated = len(listings) > AGENT_MAX_LISTINGS
+    listings = listings[:AGENT_MAX_LISTINGS]
+    profile = agent_profile(agent_id)
+    return jsonify({
+        "agent": profile or {"id": agent_id, "name": "", "brokerage": ""},
+        "counts": counts,
+        "count": len(listings),
+        "truncated": truncated,
+        "listings": listings,
+    })
+
+
+@app.route("/bundle", methods=["POST", "OPTIONS"])
+def bundle():
+    """Merge finished archives into one, server-side.
+
+    The browser can only combine what it can hold, and a whole agent's portfolio
+    is several hundred megabytes — far past what a phone will survive. Every
+    archive is already on this disk, so the merge is a streamed entry copy: peak
+    memory is one photo, not one portfolio. Entry paths are preserved, which is
+    why "by reference" produces exactly the filing an agent wants.
+    """
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    sweep_zips()
+    payload = request.get_json(silent=True) or {}
+    tokens = payload.get("tokens")
+    if not isinstance(tokens, list) or not tokens:
+        return jsonify({"error": "Nothing to combine.", "code": "bad_request"}), 400
+    tokens = [t for t in tokens if isinstance(t, str)][:AGENT_MAX_LISTINGS]
+
+    with _ZIPS_LOCK:
+        parts = [(t, dict(_ZIPS[t])) for t in tokens if t in _ZIPS]
+    live = [(t, e) for t, e in parts if os.path.exists(e["path"])]
+    if not live:
+        return jsonify({"error": "Those download links have expired — run it again.",
+                        "code": "expired"}), 404
+
+    total = sum(e.get("bytes", 0) for _t, e in live)
+    if total > MAX_TOTAL_BYTES * 6:
+        return jsonify({"error": "That is too much to combine in one archive.",
+                        "code": "too_large"}), 413
+
+    name = safe_zip_name(payload.get("name")) or "propertyfinder-bundle.zip"
+    fd, out_path = tempfile.mkstemp(prefix="pfbundle-", suffix=".zip")
+    os.close(fd)
+    used = set()
+    merged = skipped = 0
+    try:
+        with zipfile.ZipFile(out_path, "w", zipfile.ZIP_STORED) as out:
+            for _t, entry in live:
+                try:
+                    with zipfile.ZipFile(entry["path"]) as src:
+                        names = [i.filename for i in src.infolist() if not i.is_dir()]
+                        # Where this listing's photos already live, if anywhere.
+                        # Deriving the folder from the ARCHIVE NAME instead put
+                        # _info.txt under the title slug while the photos sat
+                        # under the reference — same listing, two folders.
+                        tops = {n.split("/", 1)[0] for n in names
+                                if "/" in n and not n.startswith("_")}
+                        own = tops.pop() if len(tops) == 1 and not (
+                            tops & {"property", "community"}) else ""
+                        stem = own or safe_segment(
+                            os.path.splitext(entry.get("filename") or "listing")[0],
+                            SLUG_MAX) or "listing"
+                        for info in src.infolist():
+                            if info.is_dir():
+                                continue
+                            arc = info.filename
+                            # A flat or grouped source has no per-listing folder,
+                            # so every archive would collide on property/01.jpg —
+                            # and an info file belongs beside the photos it
+                            # describes, not loose at the root as _info (7).txt.
+                            head = arc.split("/", 1)[0]
+                            if arc.startswith("_") or head in ("property", "community"):
+                                arc = f"{stem}/{arc}"
+                            base, ext = os.path.splitext(arc)
+                            n = 1
+                            while arc.lower() in used:
+                                n += 1
+                                arc = f"{base} ({n}){ext}"
+                            used.add(arc.lower())
+                            with src.open(info) as fh:
+                                out.writestr(arc, fh.read())
+                        merged += 1
+                except (zipfile.BadZipFile, OSError):
+                    skipped += 1
+    except Exception:
+        app.logger.exception("bundle failed")
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+        return jsonify({"error": "Could not build the combined archive.",
+                        "code": "server_error"}), 500
+
+    if not merged:
+        try:
+            os.remove(out_path)
+        except OSError:
+            pass
+        return jsonify({"error": "Those download links have expired — run it again.",
+                        "code": "expired"}), 404
+
+    token = register_zip(out_path, name)
+    return jsonify({"download": f"/zip/{token}", "filename": name, "merged": merged,
+                    "skipped": skipped, "expires_in": ZIP_TTL,
+                    "bytes": os.path.getsize(out_path)})
 
 
 @app.route("/capabilities", methods=["GET"])
@@ -1287,7 +1544,7 @@ def scrape():
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
                 for e in entries:
                     group = e["group"]
-                    folder = folder_for(group, opts, slug)
+                    folder = folder_for(group, opts, slug, meta.get("reference", ""))
                     stem = render_name(plan, e["index"])
                     if opts["structure"] == "flat" and group:
                         # flat drops both galleries into one namespace, so the
