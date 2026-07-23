@@ -100,4 +100,34 @@ states, innovation), 3 adversarial screens (constraint fidelity, simplicity, rea
 
 ---
 
+## 23 July — "Whole agent" mode
+
+Paste a profile link, a slug, or just the ID — `440656` works — and every live
+listing that agent has comes back in one archive, each filed under its own agency
+reference.
+
+**How it was found.** The agent page renders only ten listings and paginates in the
+browser, so no URL parameter reaches page two; six different guesses all returned page
+one. Intercepting the page's own request revealed the site's PWA search endpoint takes
+an `agent_id` filter and an arbitrary page size — one call, whole portfolio, with each
+listing's reference already attached. That is why a row shows `sykon-R-2250` *before*
+anything is fetched.
+
+**Combining moved to the server.** The browser can only merge what it can hold, and 35
+listings is several hundred megabytes; the old client-side path hid the combine button
+above 200 MB — so the one thing this feature exists for would silently not have been
+offered. `POST /bundle` merges the archives already on disk, entry by entry, so peak
+memory is one photo rather than one portfolio.
+
+**Verified against the live site:** 35 rows from the bare ID, all 35 downloaded, merged
+into a single archive with 35 reference-named folders — 22 `-R-`, 13 `-S-`, no
+collisions, valid ZIP.
+
+One bug caught during the build: deriving each listing's folder from the archive
+*filename* put `_info.txt` under the title slug while its photos sat under the
+reference, splitting one listing across two folders. The folder now comes from the
+archive's own entries.
+
+---
+
 _Rounds 2–4 appended below as they complete._
