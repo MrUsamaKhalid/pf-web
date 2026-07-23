@@ -195,7 +195,9 @@
 
     /* ============================ segmented control ============================ */
     .seg {
-      display: grid; grid-template-columns: 1fr 1fr; gap: var(--s1);
+      /* auto columns, not a hardcoded 1fr 1fr — the third tab wrapped onto its
+         own row the moment it was added. Same idiom as .mseg in the panel. */
+      display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--s1);
       height: var(--h-control);
       background: var(--field); border-radius: var(--r-control); padding: var(--s1);
       margin-bottom: var(--s3);
@@ -203,7 +205,7 @@
     .seg-btn {
       appearance: none; border: 0; background: transparent; cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
-      height: 100%; padding: 0 var(--s3);
+      height: 100%; min-width: 0; padding: 0 var(--s3); white-space: nowrap;
       font-family: var(--font-body); font-size: var(--t-sm); font-weight: 600; color: var(--muted);
       border-radius: calc(var(--r-control) - var(--s1));
       transition: background var(--d) var(--ease), color var(--d) var(--ease), box-shadow var(--d) var(--ease);
@@ -703,6 +705,10 @@
     /* ============================ responsive ============================ */
     @media (max-width: 420px) {
       body { padding: var(--s4) var(--s3); }
+      /* three tabs, one row, on a 375px phone: buy the width back from the
+         padding and the gap rather than from the words */
+      .seg-btn { padding: 0 var(--s2); gap: 5px; font-size: var(--t-xs); }
+      .seg-btn[aria-selected="true"]::before { width: 5px; height: 5px; }
       .card { padding: var(--s5) var(--s4); border-radius: 24px; }
       :root { --t-xl: 22px; }
       .results { max-height: 220px; }
@@ -787,6 +793,21 @@
                     data-lpignore="true" data-1p-ignore="true" data-form-type="other"
                     placeholder="https://www.propertyfinder.ae/en/plp/...&#10;https://www.propertyfinder.ae/en/plp/..."></textarea>
           <p class="counter" id="counter"></p>
+        </div>
+
+        <div id="paneAgent" role="tabpanel" aria-labelledby="segAgent" hidden>
+          <div class="field" data-cursor>
+            <span class="lead" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" />
+              </svg>
+            </span>
+            <input id="agentQ" type="text" name="pf-agent-profile" aria-label="Agent profile link or ID"
+                   placeholder="propertyfinder.ae/en/agent/… or 440656"
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                   data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
+          </div>
+          <p class="counter" id="agentNote">Paste an agent's profile link, or just their ID. Every live listing they have, in one go.</p>
         </div>
 
         <div class="opt" id="opt" data-open="0">
@@ -915,21 +936,6 @@
               </div>
             </div>
           </div>
-        </div>
-
-        <div id="paneAgent" role="tabpanel" aria-labelledby="segAgent" hidden>
-          <div class="field" data-cursor>
-            <span class="lead" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" />
-              </svg>
-            </span>
-            <input id="agentQ" type="text" name="pf-agent-profile" aria-label="Agent profile link or ID"
-                   placeholder="propertyfinder.ae/en/agent/… or 440656"
-                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                   data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
-          </div>
-          <p class="counter" id="agentNote">Paste an agent's profile link, or just their ID. Every live listing they have, in one go.</p>
         </div>
 
         <button id="go" class="cta" type="button" data-cursor>
