@@ -545,6 +545,11 @@
       overflow-y: auto;
       overscroll-behavior: contain;
     }
+    /* A flex child may shrink below its content, and capping the panel's height
+       made every row do exactly that — collapsing to the 34px min-height and
+       letting labels, inputs and hints overlap each other. Rows keep their
+       natural height; the panel scrolls instead. */
+    .opt-body > * { flex: 0 0 auto; }
 
     .opt-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: var(--h-mini); }
     .opt-row.opt-row-stack { flex-direction: column; align-items: stretch; gap: var(--s2); }
@@ -625,6 +630,34 @@
       font-family: var(--font-body); font-size: var(--t-input); font-weight: 600; color: var(--ink);
       font-variant-numeric: tabular-nums;
     }
+
+    /* ---- agent category picks ---- */
+    .agent-picks { display: flex; gap: var(--s2); margin-top: var(--s2); }
+    .pick {
+      flex: 1 1 0; min-width: 0;
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      height: 40px; padding: 0 var(--s3); border: 0; cursor: pointer;
+      background: var(--field); border-radius: var(--r-mini);
+      font-family: var(--font-body); font-size: var(--t-sm); font-weight: 600; color: var(--muted);
+      transition: background var(--d) var(--ease), color var(--d) var(--ease);
+    }
+    .pick:hover { color: var(--ink); }
+    .pick .tick {
+      flex: none; width: 16px; height: 16px; border-radius: 5px;
+      background: #fff; box-shadow: inset 0 0 0 1.5px #c7c9cc;
+      transition: background var(--d) var(--ease), box-shadow var(--d) var(--ease);
+    }
+    .pick[aria-checked="true"] { background: var(--pf-soft); color: var(--pf-dark); }
+    .pick[aria-checked="true"] .tick {
+      background: var(--pf); box-shadow: inset 0 0 0 1.5px var(--pf);
+    }
+    .pick[aria-checked="true"] .tick::after {
+      content: ""; display: block; width: 100%; height: 100%;
+      background: no-repeat center/9px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+    }
+    .pick-n { font-variant-numeric: tabular-nums; opacity: .75; }
+    .pick:disabled { opacity: .45; cursor: not-allowed; }
+    .pick:focus-visible { outline: 0; box-shadow: var(--ring); }
 
     /* ---- free-text setting: the .field idiom at the panel's 34px tier ---- */
     .opt-opt {
@@ -807,6 +840,14 @@
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
           </div>
+          <div class="agent-picks" id="agentPicks" hidden role="group" aria-label="Which listings to download">
+            <button class="pick" id="pickRent" type="button" role="checkbox" aria-checked="true">
+              <span class="tick" aria-hidden="true"></span><span class="pick-l">For rent</span><span class="pick-n" id="pickRentN">0</span>
+            </button>
+            <button class="pick" id="pickBuy" type="button" role="checkbox" aria-checked="true">
+              <span class="tick" aria-hidden="true"></span><span class="pick-l">For sale</span><span class="pick-n" id="pickBuyN">0</span>
+            </button>
+          </div>
           <p class="counter" id="agentNote">Paste an agent's profile link, or just their ID. Every live listing they have, in one go.</p>
         </div>
 
@@ -988,7 +1029,9 @@
     const statusEl = $("status"), zipAllBtn = $("zipAll"), retryBtn = $("retryFailed");
     const segSingle = $("segSingle"), segBatch = $("segBatch"), segAgent = $("segAgent");
     const paneSingle = $("paneSingle"), paneBatch = $("paneBatch"), paneAgent = $("paneAgent");
-    const agentQ = $("agentQ"), agentNote = $("agentNote");
+    const agentQ = $("agentQ"), agentNote = $("agentNote"), agentPicks = $("agentPicks");
+    const pickRent = $("pickRent"), pickBuy = $("pickBuy");
+    const pickRentN = $("pickRentN"), pickBuyN = $("pickBuyN");
 
     const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
     const CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
@@ -1307,7 +1350,8 @@
       } finally {
         clearTimeout(wake); busy = false; singleAbort = null;
         goLabel.textContent = mode === "single" ? "Download photos"
-          : mode === "batch" ? "Process links" : "Download this agent";
+          : mode === "batch" ? "Process links"
+        : (agentData ? "Download " + agentSelected().length + " listings" : "Find listings");
         goBtn.classList.remove("is-stop");
         optLock(false);
       }
@@ -1386,7 +1430,7 @@
         const acts = document.createElement("div"); acts.className = "row-actions";
         li.append(head, m, acts);
         rowsEl.appendChild(li);
-        queue.push({ id: i, url: spec.url, status: "queued",
+        queue.push({ id: i, url: spec.url, status: "queued", options: spec.options || null,
                      listing: spec.reference ? { reference: spec.reference } : {},
                      reference: spec.reference || "", entry: null,
                      note: "Waiting", el: li, t: t, m: m, pill: pill, ref: ref, acts: acts });
@@ -1592,7 +1636,7 @@
           },
           error: (msg, code) => settle({ error: msg, code: code }),
           done: (msg) => settle({ done: msg }),
-        }, ctrl.signal);
+        }, ctrl.signal, Object.assign({}, currentOptions(), item.options || {}));
       });
     }
 
@@ -1673,7 +1717,8 @@
       } finally {
         queueBusy = false; busy = false; queueAbort = null;
         goLabel.textContent = mode === "single" ? "Download photos"
-          : mode === "batch" ? "Process links" : "Download this agent";
+          : mode === "batch" ? "Process links"
+        : (agentData ? "Download " + agentSelected().length + " listings" : "Find listings");
         goBtn.classList.remove("is-stop");
         goBtn.disabled = false;
         optLock(false);
@@ -1711,54 +1756,113 @@
        then hands the list to the same queue the batch mode uses. Nothing about
        downloading is special here — only where the list came from.
        ------------------------------------------------------------------- */
+    /* The lookup is separate from the download: an agent needs to see what they
+       are about to pull — and choose rent, sale or both — before 35 listings
+       start moving. Looking up is cheap; downloading is not. */
+    let agentData = null, agentLookupKey = "";
+
+    function agentRender() {
+      const has = !!agentData;
+      agentPicks.hidden = !has;
+      if (!has) return;
+      const c = agentData.counts || {};
+      pickRentN.textContent = c.rent || 0;
+      pickBuyN.textContent = c.buy || 0;
+      pickRent.disabled = !c.rent;
+      pickBuy.disabled = !c.buy;
+      if (!c.rent) pickRent.setAttribute("aria-checked", "false");
+      if (!c.buy) pickBuy.setAttribute("aria-checked", "false");
+      const who = ((agentData.agent && agentData.agent.name) || "").replace(/\s+/g, " ").trim();
+      const firm = (agentData.agent && agentData.agent.brokerage) ? " · " + agentData.agent.brokerage : "";
+      const picked = agentSelected().length;
+      agentNote.textContent = who + firm + " — " + picked + " of " + agentData.count + " selected";
+      goLabel.textContent = picked ? "Download " + picked + " listing" + (picked === 1 ? "" : "s")
+                                   : "Nothing selected";
+    }
+
+    function agentSelected() {
+      if (!agentData) return [];
+      const rent = pickRent.getAttribute("aria-checked") === "true";
+      const buy = pickBuy.getAttribute("aria-checked") === "true";
+      return agentData.listings.filter((l) => (l.offering === "rent" && rent) || (l.offering === "buy" && buy));
+    }
+
+    async function agentLookup(q) {
+      if (!q || q === agentLookupKey) return;
+      agentLookupKey = q;
+      agentData = null; agentRender();
+      agentNote.textContent = "Looking up…";
+      try {
+        const r = await fetch(BACKEND_URL + "/agent?q=" + encodeURIComponent(q), { cache: "no-store" });
+        const d = await r.json();
+        if (!r.ok) {
+          agentLookupKey = "";
+          agentNote.textContent = (d && d.error) || "Couldn't look that agent up.";
+          return;
+        }
+        agentData = d;
+        agentRender();
+      } catch (e) {
+        agentLookupKey = "";
+        agentNote.textContent = navigator.onLine === false
+          ? "You're offline — reconnect and try again."
+          : "Couldn't reach the server. Try again in a moment.";
+      }
+    }
+
     async function runAgent() {
       const q = agentQ.value.trim();
       if (!q) { setStatus("Paste the agent's profile link or their ID.", "bad"); agentQ.focus(); return; }
-
-      busy = true; optLock(true); setStatus("", "");
-      goLabel.textContent = "Finding listings…";
-      resetResults("rows");
-      resultsEl.hidden = false; rowsEl.hidden = false; logEl.hidden = true;
-
-      let data = null;
-      try {
-        const r = await fetch(BACKEND_URL + "/agent?q=" + encodeURIComponent(q), { cache: "no-store" });
-        data = await r.json();
-        if (!r.ok) {
-          setStatus(data && data.error ? data.error : "Couldn't look that agent up.", "bad");
-          return;
-        }
-      } catch (e) {
-        setStatus(navigator.onLine === false
-          ? "You're offline — reconnect and try again."
-          : "Couldn't reach the server. Try again in a moment.", "bad");
-        return;
-      } finally {
-        busy = false; optLock(false);
-        goLabel.textContent = "Download this agent";
+      if (!agentData || agentLookupKey !== q) {
+        busy = true; goLabel.textContent = "Finding listings…";
+        await agentLookup(q);
+        busy = false;
+        agentRender();
+        if (!agentData) return;
+        return;                       // first press looks up; the next one downloads
       }
 
-      const who = (data.agent && data.agent.name) || "That agent";
-      const firm = (data.agent && data.agent.brokerage) ? " · " + data.agent.brokerage : "";
-      const c = data.counts || {};
-      agentBundleName = who.replace(/\s+/g, " ").trim() + " listings";
+      const picked = agentSelected();
+      if (!picked.length) { setStatus("Tick rent, sale, or both.", "bad"); return; }
+
+      const who = ((agentData.agent && agentData.agent.name) || "agent").replace(/\s+/g, " ").trim();
+      agentBundleName = who + " listings";
       // One ZIP is the point of pulling a whole agent; only override a delivery
       // the user has not chosen for themselves.
       if (optState.batch_delivery === "separate") { optState.batch_delivery = "combined"; optSave(); optRender(); }
-      agentNote.textContent = who.replace(/\s+/g, " ") + firm + " — "
-        + (c.rent || 0) + " for rent, " + (c.buy || 0) + " for sale";
-      if (data.truncated) noteLine("Only the first " + data.count + " listings were taken.");
+      // grouped/flat give no per-listing level, so 35 listings would land on top
+      // of each other inside the agent folder. Reference is the sane default.
+      if (optState.structure === "grouped" || optState.structure === "flat") {
+        optState.structure = "by_reference"; optSave(); optRender();
+      }
 
-      // Filing 35 listings under one folder each, named by reference, is the
-      // only structure that makes sense here — but only override a setting the
-      // user has not themselves chosen.
-      if (optState.structure === "grouped") { optState.structure = "by_reference"; optSave(); optRender(); }
+      // Each listing carries its own folder pair: <Agent>/Rent/… or <Agent>/Buy/…
+      const items = picked.map((l) => ({
+        url: l.url, reference: l.reference, title: l.title,
+        options: { top_folder: who, sub_folder: l.offering === "buy" ? "Buy" : "Rent" },
+      }));
 
       optMeta = {}; optRender();
-      queueBuild(data.listings);
-      setStatus("Found " + data.count + " listings — starting…", "");
+      resetResults("rows");
+      queueBuild(items);
+      setStatus("Starting " + items.length + " listings…", "");
       await queueRun();
     }
+
+    function agentToggle(btn) {
+      if (btn.disabled) return;
+      btn.setAttribute("aria-checked", btn.getAttribute("aria-checked") === "true" ? "false" : "true");
+      agentRender();
+    }
+    pickRent.addEventListener("click", () => agentToggle(pickRent));
+    pickBuy.addEventListener("click", () => agentToggle(pickBuy));
+    agentQ.addEventListener("change", () => { const v = agentQ.value.trim(); if (v) agentLookup(v); });
+    agentQ.addEventListener("input", () => {
+      if (agentData && agentQ.value.trim() !== agentLookupKey) {
+        agentData = null; agentLookupKey = ""; agentRender();
+        agentPicks.hidden = true; goLabel.textContent = "Find listings";
+      }
+    });
 
     retryBtn.addEventListener("click", () => {
       queueRetry(queue.filter((q) => q.status === "failed" || q.status === "stopped"));
@@ -1775,7 +1879,8 @@
       paneBatch.hidden = mode !== "batch";
       paneAgent.hidden = mode !== "agent";
       goLabel.textContent = mode === "single" ? "Download photos"
-        : mode === "batch" ? "Process links" : "Download this agent";
+        : mode === "batch" ? "Process links"
+        : (agentData ? "Download " + agentSelected().length + " listings" : "Find listings");
       // Results are the user's work, not decoration — flipping to the other tab
       // to check something used to delete a finished batch off the screen.
       optSyncMode();

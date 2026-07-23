@@ -182,6 +182,13 @@ OPTION_SPEC = {
                     "label": "Photo file names",
                     "tokens": list(NAME_TOKENS), "max_len": MAX_PATTERN_LEN,
                     "note": "The extension is added from the image itself."},
+    # Two optional levels above whatever `structure` produces. The agent mode
+    # uses them for "<Agent Name>/Rent/…", but nothing here knows about agents —
+    # they are just folders, so any caller can nest however it likes.
+    "top_folder":  {"type": "text", "default": "", "label": "Top folder",
+                    "max_len": 60},
+    "sub_folder":  {"type": "text", "default": "", "label": "Sub folder",
+                    "max_len": 40},
     # Free text rather than an account: this app has no sign-in, and one
     # optional name is not worth reintroducing one.
     "agent_name":  {"type": "text", "default": "", "label": "Your name",
@@ -937,23 +944,36 @@ def download_to(dest_path, candidates, want_jpeg):
     return None
 
 
-def folder_for(group, opts, slug, reference=""):
-    """Folders stay the app's own vocabulary — the naming pattern only ever
-    names the file — so no user input can reach a directory component and a
-    "../" has nothing to escape. The slug is re-sanitised anyway: it comes from
-    a URL, and defence in depth is free here.
+def listing_folder(opts, slug, reference=""):
+    """Everything above property/ and community/ for one listing.
+
+    Every segment goes through safe_segment, so no caller — including the agent
+    mode, which passes a name straight off a profile page — can reach a
+    directory component or escape with "../".
     """
-    if opts["structure"] == "flat":
-        return ""
-    if opts["structure"] == "by_reference":
+    parts = []
+    top = safe_segment(opts.get("top_folder") or "", SLUG_MAX)
+    if top:
+        parts.append(top)
+    sub = safe_segment(opts.get("sub_folder") or "", 32)
+    if sub:
+        parts.append(sub)
+    structure = opts["structure"]
+    if structure == "by_reference":
         # The agency reference is what an agent files by — "sykon-R-2250" is the
         # string they search their CRM for. Case is preserved for that reason.
-        top = safe_segment(reference, SLUG_MAX) or slugify(slug, SLUG_MAX) or "listing"
-        return f"{top}/{group}" if group else top
-    if opts["structure"] == "by_listing":
-        listing = slugify(slug, SLUG_MAX) or "listing"
-        return f"{listing}/{group}" if group else listing
-    return group
+        parts.append(safe_segment(reference, SLUG_MAX)
+                     or slugify(slug, SLUG_MAX) or "listing")
+    elif structure == "by_listing":
+        parts.append(slugify(slug, SLUG_MAX) or "listing")
+    return "/".join(parts)
+
+
+def folder_for(group, opts, slug, reference=""):
+    base = listing_folder(opts, slug, reference)
+    if opts["structure"] == "flat" or not group:
+        return base
+    return f"{base}/{group}" if base else group
 
 
 # --------------------------------------------------------------------------- #
@@ -1536,7 +1556,9 @@ def scrape():
             plan = build_name_plan(opts, meta, pad)
             # reserving both manifest names means a photo can never be handed a
             # path that lands on top of the info file
-            used = {"_info.txt", "_info.json"}
+            _base = listing_folder(opts, slug, meta.get("reference", ""))
+            _at = (_base + "/") if _base else ""
+            used = {(_at + "_info.txt").lower(), (_at + "_info.json").lower()}
 
             fd, zip_path = tempfile.mkstemp(prefix="pfzip-", suffix=".zip")
             os.close(fd)
@@ -1558,14 +1580,16 @@ def scrape():
                                              "bytes": e["bytes"], "sha256": e["sha256"],
                                              "source": e["url"]})
                 if opts["info"]:
+                    base = listing_folder(opts, slug, meta.get("reference", ""))
+                    info_at = (base + "/") if base else ""
                     if opts["info_format"] == "json":
-                        zf.writestr("_info.json",
+                        zf.writestr(info_at + "_info.json",
                                     build_manifest_json(url, meta, manifest_entries, opts))
                     else:
                         # BOM so a non-ASCII title survives legacy Notepad and
                         # Excel's CSV import. Deliberately not on _info.json —
                         # a BOM breaks strict JSON parsers.
-                        zf.writestr("_info.txt", "﻿" + build_manifest_txt(
+                        zf.writestr(info_at + "_info.txt", "﻿" + build_manifest_txt(
                             url, meta, n_prop, n_comm, n_other, opts))
 
             shutil.rmtree(workdir, ignore_errors=True)
