@@ -220,6 +220,34 @@
     /* Bayut's own green marks the Bayut chip even before it is selected. */
     #srcBayut::before { background: #28b16d; }
 
+    /* ---- Bayut helper (bookmarklet) — the Bayut flow starts in the user's
+       own browser, so in Bayut mode the paste UIs step aside for it ---- */
+    #bayutHelper { display: none; }
+    [data-source="bayut"] #bayutHelper { display: block; }
+    [data-source="bayut"] .seg,
+    [data-source="bayut"] #paneSingle,
+    [data-source="bayut"] #paneBatch,
+    [data-source="bayut"] #paneAgent { display: none !important; }
+    /* the CTA has no job in Bayut mode except to become Stop during a run */
+    [data-source="bayut"] .cta { display: none; }
+    [data-source="bayut"] .cta.is-stop { display: flex; }
+    .bayut-help {
+      border: var(--stroke) solid var(--line); border-radius: var(--r-field);
+      background: var(--pf-soft); padding: var(--s4); margin-bottom: var(--s4);
+    }
+    .bh-lead { margin: 0 0 var(--s3); font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
+    .bh-steps { margin: 0; padding-left: var(--s5); display: flex; flex-direction: column; gap: var(--s3);
+      font-size: var(--t-sm); line-height: 1.5; color: var(--soft); }
+    .bh-mark {
+      display: inline-flex; align-items: center; height: 34px; padding: 0 14px; margin-left: 4px;
+      background: var(--pf); color: #fff; border-radius: var(--r-mini);
+      font-weight: 700; text-decoration: none; cursor: grab; white-space: nowrap;
+      box-shadow: 0 4px 10px -4px rgba(var(--pf-rgb), .5);
+    }
+    .bh-mark:active { cursor: grabbing; }
+    .bh-mark:focus-visible { outline: 0; box-shadow: var(--ring); }
+    .bh-note { margin: var(--s3) 0 0; font-size: var(--t-xs); color: var(--muted); }
+
     /* ---- Bayut theme: the whole accent moves to Bayut green ----
        Every coral value in the app routes through --pf / --pf-rgb / the gradient
        stops / --ring-color, so overriding those six here re-skins the entire
@@ -845,6 +873,16 @@
           <button class="src-btn" id="srcBayut" type="button" role="tab" aria-selected="false">Bayut</button>
         </div>
 
+        <div class="bayut-help" id="bayutHelper">
+          <p class="bh-lead">Bayut blocks servers, so grab photos from your own browser — free, one click.</p>
+          <ol class="bh-steps">
+            <li>Drag this to your bookmarks bar: <a class="bh-mark" id="bayutMark" href="#" draggable="true">📷 Grab Bayut photos</a></li>
+            <li>Open any Bayut property listing.</li>
+            <li>Click the bookmark — the photos download here, in your folders.</li>
+          </ol>
+          <p class="bh-note">Tip: on a phone, long-press the button and “Add to bookmarks”.</p>
+        </div>
+
         <div class="seg" role="tablist" aria-label="Mode">
           <button class="seg-btn" id="segSingle" type="button" role="tab" aria-selected="true" aria-controls="paneSingle">One listing</button>
           <button class="seg-btn" id="segBatch" type="button" role="tab" aria-selected="false" aria-controls="paneBatch">Many links</button>
@@ -1257,13 +1295,13 @@
     }
 
     /* ------------------------- shared scrape engine ------------------------- */
-    async function streamScrape(url, cb, signal, options) {
+    async function streamScrape(url, cb, signal, options, supplied) {
       let res;
       try {
         res = await fetch(BACKEND_URL + "/scrape", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, options: options || currentOptions() }),
+          body: JSON.stringify({ url, options: options || currentOptions(), supplied: supplied || undefined }),
           signal,
         });
       } catch (e) {
@@ -1496,6 +1534,7 @@
         li.append(head, m, acts);
         rowsEl.appendChild(li);
         queue.push({ id: i, url: spec.url, status: "queued", options: spec.options || null,
+                     supplied: spec.supplied || null,
                      listing: spec.reference ? { reference: spec.reference } : {},
                      reference: spec.reference || "", entry: null,
                      note: "Waiting", el: li, t: t, m: m, pill: pill, ref: ref, acts: acts });
@@ -1701,7 +1740,7 @@
           },
           error: (msg, code) => settle({ error: msg, code: code }),
           done: (msg) => settle({ done: msg }),
-        }, ctrl.signal, Object.assign({}, currentOptions(), item.options || {}));
+        }, ctrl.signal, Object.assign({}, currentOptions(), item.options || {}), item.supplied || null);
       });
     }
 
@@ -1975,10 +2014,8 @@
         : "https://www.bayut.com/property/details-...\nhttps://www.bayut.com/property/details-...";
       p("sub").textContent = pf
         ? "Paste a PropertyFinder link and download every photo — property & community, full resolution, in tidy folders."
-        : "Paste a Bayut link and download every photo, in tidy folders."
-          + (bayutReady ? "" : " (Bayut isn't set up on the server yet.)");
-      setStatus(!pf && !bayutReady
-        ? "Bayut downloads aren't switched on for this server yet." : "", "bad");
+        : "Grab every photo from a Bayut listing — free, straight from your own browser.";
+      setStatus("", "");
     }
     function p(cls) { return document.querySelector("." + cls); }
 
@@ -2654,9 +2691,9 @@
        feature is discoverable; when it is off, selecting it says so plainly and
        a run returns the backend's own clear message. */
     function applySources(sources) {
+      // The bookmarklet path needs no server config, so this only records
+      // whether the (optional) paste-a-link unblocker is also available.
       bayutReady = !!(sources && sources.bayut);
-      srcBayut.title = bayutReady ? "" : "Not set up on the server yet";
-      if (source === "bayut") setSource("bayut");   // refresh the hint text
     }
     async function probeSources() {
       try {
@@ -2665,12 +2702,72 @@
       } catch (e) {}
     }
 
+    /* ---------------------- bookmarklet hand-off ----------------------
+       The Bayut helper runs in the user's own browser (which passes Bayut's
+       wall), reads the gallery, and opens this app with the image list in the
+       URL fragment. Nothing was fetched by our server — the photos come straight
+       from Bayut's open CDN. One listing or many, the queue handles both. */
+    function readBookmarklet() {
+      const m = /[#&]b=([^&]+)/.exec(location.hash || "");
+      if (!m) return null;
+      try {
+        const raw = m[1].replace(/-/g, "+").replace(/_/g, "/");
+        return JSON.parse(decodeURIComponent(escape(atob(raw))));
+      } catch (e) { return null; }
+    }
+    async function runBookmarklet(payload) {
+      const listings = (payload && payload.listings) || [];
+      if (!listings.length) return;
+      // strip the payload from the address bar so a refresh doesn't re-run it
+      history.replaceState(null, "", location.pathname + location.search);
+      setSource("bayut");
+      const items = listings.filter((L) => L && L.url && (L.images || []).length).map((L) => ({
+        url: L.url, reference: L.reference || "", title: L.title || "",
+        supplied: { images: L.images, reference: L.reference || "", title: L.title || "" },
+      }));
+      if (!items.length) { setStatus("The Bayut helper didn't find any photos on that page.", "bad"); return; }
+      resetResults("rows"); resultsEl.hidden = false; rowsEl.hidden = false; logEl.hidden = true;
+      optMeta = {}; optRender();
+      queueBuild(items);
+      setStatus("Starting " + items.length + " Bayut listing" + (items.length === 1 ? "" : "s") + "…", "");
+      await queueRun();
+    }
+
+    /* Build the bookmarklet from a real function via toString(), so the source
+       stays readable and nothing has to be hand-escaped. It reads the gallery
+       (800x600 thumbnails) out of the page it is clicked on and re-opens this
+       app with the list — the app URL is baked in from wherever this was dragged. */
+    (function () {
+      const mark = $("bayutMark");
+      if (!mark) return;
+      function bayutGrab() {
+        try {
+          var h = document.documentElement.outerHTML;
+          var ids = [...new Set((h.match(/images\.bayut\.com\/thumbnails\/(\d+)-800x600/g) || [])
+            .map(function (u) { return u.match(/\d+/)[0]; }))];
+          if (!ids.length) { alert("Open a Bayut property listing first, then click this."); return; }
+          var imgs = ids.map(function (x) { return "https://images.bayut.com/thumbnails/" + x + "-800x600.jpeg"; });
+          var ref = (h.match(/Bayut\s*[-–]\s*([A-Za-z0-9][\w-]{1,40})/) || [])[1] || "";
+          var title = (document.title || "").replace(/\s*\|\s*Bayut\.com.*/, "").trim();
+          var p = { v: 1, listings: [{ url: location.href, images: imgs, reference: ref, title: title }] };
+          var b = btoa(unescape(encodeURIComponent(JSON.stringify(p)))).replace(/\+/g, "-").replace(/\//g, "_");
+          window.open("__APP__#b=" + b, "_blank");
+        } catch (e) { alert("Bayut helper error: " + e.message); }
+      }
+      const app = location.origin + location.pathname;
+      const body = bayutGrab.toString().replace(/\s+/g, " ");
+      mark.href = ("javascript:(" + body + ")()").replace("__APP__", app);
+      mark.setAttribute("data-app", app);
+    })();
+
     /* ------------------------------ init ------------------------------ */
     optState = optLoad();
     optRender();
     optReady = true;
     setSource("propertyfinder");
     probeSources();
+    const bmk = readBookmarklet();
+    if (bmk) runBookmarklet(bmk);
   </script>
 </body>
 </html>
