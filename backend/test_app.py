@@ -336,6 +336,24 @@ def test_bayut():
     empty, _ = backend.parse_bayut("<html><body>just a challenge</body></html>", "https://www.bayut.com/x")
     eq("no photos from an unsolved page", len(empty), 0)
 
+    # The bookmarklet payload is untrusted: every image must be on Bayut's CDN,
+    # or the endpoint becomes an open image proxy / SSRF vector.
+    good = backend.sanitize_supplied({
+        "images": ["https://images.bayut.com/thumbnails/1-800x600.jpeg",
+                   "https://images.bayut.com/thumbnails/2-800x600.jpeg"],
+        "reference": "sykon-R-2262", "title": "Villa | Bayut.com"})
+    eq("valid supplied kept", len(good["images"]), 2)
+    eq("reference kept", good["meta"]["reference"], "sykon-R-2262")
+    check("title cleaned", good["meta"]["title"] == "Villa", good["meta"].get("title"))
+    filtered = backend.sanitize_supplied({"images": [
+        "https://images.bayut.com.evil.com/x.jpg",     # lookalike host
+        "http://169.254.169.254/latest/meta-data/",    # cloud metadata SSRF
+        "https://images.bayut.com/thumbnails/9-800x600.jpeg"]})
+    eq("only the real Bayut image survives", len(filtered["images"]), 1)
+    check("survivor is on the CDN", "images.bayut.com/thumbnails/9-" in filtered["images"][0])
+    check("empty images -> None", backend.sanitize_supplied({"images": []}) is None)
+    check("non-dict -> None", backend.sanitize_supplied("nope") is None)
+
 
 def test_http_contract():
     print("\nHTTP contract")
