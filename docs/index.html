@@ -34,11 +34,15 @@
       --line: #ededf0;
       --pf: #ef5e4e;
       --pf-dark: #d93c20;
-      --pf-soft: rgba(239, 94, 78, 0.12);
+      --pf-rgb: 239, 94, 78;              /* every coral tint routes through this */
+      --pf-soft: rgba(var(--pf-rgb), 0.12);
+      --pf-lo: #ff8568;                   /* CTA/bar gradient light stop */
+      --pf-hi: #d6361f;                   /* ...and dark stop */
+      --ring-color: var(--pf);
       /* The focus ring was --pf-soft, which measures 1.18:1 against the card —
          invisible, on every control in the app. A white spacer plus solid coral
          reads on the card (3.26), the grey field and the black CTA alike. */
-      --ring: 0 0 0 2px var(--card), 0 0 0 4px var(--pf);
+      --ring: 0 0 0 2px var(--card), 0 0 0 4px var(--ring-color);
       --ok: #1b874b;
       /* Text colours are pinned to WCAG 1.4.3 AA on #fefefe, computed not
          eyeballed: ink 18.7, soft 9.4, muted 6.2, faint 4.9, coral 4.5, ok 4.5.
@@ -105,7 +109,7 @@
     .aurora {
       position: absolute; top: -30%; left: -30%; width: 160%; height: 160%;
       background:
-        radial-gradient(38% 42% at 28% 32%, rgba(239,94,78,0.18), rgba(239,94,78,0) 70%),
+        radial-gradient(38% 42% at 28% 32%, rgba(var(--pf-rgb),0.18), rgba(var(--pf-rgb),0) 70%),
         radial-gradient(46% 40% at 74% 26%, rgba(70,84,120,0.14), rgba(70,84,120,0) 72%),
         radial-gradient(50% 50% at 60% 80%, rgba(255,244,240,0.5), rgba(255,244,240,0) 70%);
       opacity: .85; will-change: opacity; animation: auroraPulse 26s ease-in-out infinite;
@@ -126,7 +130,7 @@
     .blob-1 .inner { animation: float1 11s ease-in-out infinite; }
     .blob-1 svg { width: 100%; height: 100%; display: block; }
     .blob-2 { top: 12%; left: 64%; width: 460px; height: 460px; filter: blur(54px); }
-    .blob-2 .inner { border-radius: 50%; background: radial-gradient(circle at 50% 50%, rgba(239,94,78,.55), rgba(239,94,78,0) 66%); animation: float2 13s ease-in-out infinite, breatheA 15s ease-in-out infinite; }
+    .blob-2 .inner { border-radius: 50%; background: radial-gradient(circle at 50% 50%, rgba(var(--pf-rgb),.55), rgba(var(--pf-rgb),0) 66%); animation: float2 13s ease-in-out infinite, breatheA 15s ease-in-out infinite; }
     .blob-3 { bottom: 4%; left: 8%; width: 420px; height: 420px; filter: blur(60px); }
     .blob-3 .inner { border-radius: 50%; background: radial-gradient(circle at 50% 50%, rgba(70,84,120,.34), rgba(70,84,120,0) 66%); animation: float1 16s ease-in-out infinite, breatheB 19s ease-in-out infinite 3s; }
     @keyframes float1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(0,-26px); } }
@@ -142,11 +146,11 @@
     body.custom-cursor .cursor-dot, body.custom-cursor .cursor-ring { display: block; }
     .cursor-dot { width: 6px; height: 6px; background: var(--pf); }
     .cursor-ring {
-      width: 34px; height: 34px; border: 1.5px solid rgba(239,94,78,.55);
+      width: 34px; height: 34px; border: 1.5px solid rgba(var(--pf-rgb),.55);
       transition: width var(--d) var(--ease-spring), height var(--d) var(--ease-spring),
                   background var(--d) var(--ease), border-color var(--d) var(--ease);
     }
-    .cursor-ring.hot { width: 58px; height: 58px; background: rgba(239,94,78,.08); border-color: var(--pf); }
+    .cursor-ring.hot { width: 58px; height: 58px; background: rgba(var(--pf-rgb),.08); border-color: var(--pf); }
 
     /* ============================ card ============================ */
     /* The entrance animation lives HERE, not on .card. A filled animation
@@ -184,7 +188,51 @@
       border-bottom: var(--stroke) solid var(--line);
     }
     .cobrand svg.pf-logo { height: 26px; width: auto; display: block; }
+    .cobrand svg.bayut-logo { height: 20px; width: auto; display: none; }
     .cobrand svg.sykon-logo { height: 15px; width: auto; display: block; }
+    /* Which co-brand logo shows follows the source, decided by CSS so it can't
+       lose the [hidden]-vs-display specificity fight a JS toggle would. */
+    [data-source="bayut"] .cobrand svg.pf-logo { display: none; }
+    [data-source="bayut"] .cobrand svg.bayut-logo { display: block; }
+
+    /* ---- source pill (PropertyFinder | Bayut) ---- */
+    .src {
+      display: inline-flex; gap: 2px; margin: 0 auto var(--s4); padding: 3px;
+      background: var(--field); border-radius: var(--r-pill);
+    }
+    .src-btn {
+      appearance: none; border: 0; background: transparent; cursor: pointer;
+      height: 30px; padding: 0 14px; border-radius: var(--r-pill);
+      font-family: var(--font-body); font-size: var(--t-xs); font-weight: 600; color: var(--muted);
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: background var(--d) var(--ease), color var(--d) var(--ease), box-shadow var(--d) var(--ease);
+    }
+    .src-btn::before {
+      content: ""; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--pf); opacity: 0; transition: opacity var(--d) var(--ease);
+    }
+    .src-btn[aria-selected="true"] {
+      background: #fff; color: var(--ink);
+      box-shadow: 0 1px 2px rgba(17,17,17,.05), 0 4px 10px -6px rgba(17,17,17,.2);
+    }
+    .src-btn[aria-selected="true"]::before { opacity: 1; }
+    .src-btn:focus-visible { outline: 0; box-shadow: var(--ring); }
+    /* Bayut's own green marks the Bayut chip even before it is selected. */
+    #srcBayut::before { background: #28b16d; }
+
+    /* ---- Bayut theme: the whole accent moves to Bayut green ----
+       Every coral value in the app routes through --pf / --pf-rgb / the gradient
+       stops / --ring-color, so overriding those six here re-skins the entire
+       card — CTA wipe, cursor, focus ring, progress bar, chips and dots. */
+    [data-source="bayut"] {
+      --pf: #28b16d;
+      --pf-dark: #1e8653;                 /* 4.5:1 text on the card */
+      --pf-rgb: 40, 177, 109;
+      --pf-soft: rgba(var(--pf-rgb), 0.12);
+      --pf-lo: #4ad691;
+      --pf-hi: #1b7749;
+      --ring-color: #1e8653;              /* solid green ring stays >=3:1 */
+    }
     .cobrand .x { color: #cdcfd4; font-size: var(--t-md); }
 
     h1 {
@@ -277,7 +325,7 @@
     .cta:hover { box-shadow: 0 22px 44px -16px rgba(214,54,31,.5); }
     .cta .fill {
       position: absolute; inset: 0; border-radius: inherit; z-index: 0;
-      background: linear-gradient(120deg, #ff8568 0%, #ef5e4e 50%, #d6361f 100%);
+      background: linear-gradient(120deg, var(--pf-lo) 0%, var(--pf) 50%, var(--pf-hi) 100%);
       clip-path: circle(0% at var(--cx,50%) var(--cy,50%));
       transition: clip-path var(--d-rev) cubic-bezier(.22,.61,.36,1);
     }
@@ -313,7 +361,7 @@
     .log-line.on { color: var(--ink); font-weight: 500; }
     .log-line.bad { color: var(--err); }
     .log-line.note { color: #817550; }
-    .log-line .ico { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+    .log-line .ico { color: var(--pf); flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
     .log-line .ico svg { width: 15px; height: 15px; }
 
     .rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
@@ -358,7 +406,7 @@
       transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease),
                   box-shadow var(--d-fast) var(--ease);
     }
-    .chip-btn:hover { background: rgba(239, 94, 78, .2); }
+    .chip-btn:hover { background: rgba(var(--pf-rgb), .2); }
     .chip-btn:focus-visible { outline: 2px solid var(--pf); outline-offset: 2px; }
     .chip-btn.quiet {
       background: transparent; color: var(--muted); font-weight: 500;
@@ -370,14 +418,14 @@
     .chip-btn.quiet svg { width: 12px; height: 12px; opacity: .7; }
 
     .bar { margin-top: var(--s3); height: 6px; background: #e6e6ea; border-radius: var(--r-pill); overflow: hidden; }
-    .bar span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, #ff8568, #ef5e4e); border-radius: var(--r-pill); transition: width var(--d-slow) var(--ease); }
+    .bar span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--pf-lo), var(--pf)); border-radius: var(--r-pill); transition: width var(--d-slow) var(--ease); }
     /* Downloading ends at 92% and the server then hashes, dedupes and writes the
        archive — several seconds where a still bar reads as a hang. This says
        "working" without claiming progress it cannot measure. */
     .bar.packing span { animation: packing 1.1s var(--ease) infinite; }
     @keyframes packing { 0% { opacity: 1; } 50% { opacity: .45; } 100% { opacity: 1; } }
 
-    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(239,94,78,.3); border-top-color: var(--pf); border-radius: 50%; animation: spin .7s linear infinite; }
+    .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(var(--pf-rgb),.3); border-top-color: var(--pf); border-radius: 50%; animation: spin .7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .status { min-height: 20px; margin-top: var(--s3); font-size: var(--t-sm); text-align: center; color: var(--muted); }
@@ -688,7 +736,7 @@
     }
     .tok:hover { background: #e6e6ea; color: var(--ink); }
     .tok[aria-pressed="true"] { background: var(--pf-soft); color: var(--pf-dark); }
-    .tok[aria-pressed="true"]:hover { background: rgba(239,94,78,.2); }
+    .tok[aria-pressed="true"]:hover { background: rgba(var(--pf-rgb),.2); }
     .tok:focus-visible { outline: 0; box-shadow: var(--ring); }
     /* a token whose source is empty would silently vanish from every file
        name, so it is unavailable rather than merely off */
@@ -758,7 +806,7 @@
     }
 
     /* ?debug=layout */
-    body.debug-layout * { outline: 1px solid rgba(239,94,78,.35); }
+    body.debug-layout * { outline: 1px solid rgba(var(--pf-rgb),.35); }
   </style>
 </head>
 <body>
@@ -784,12 +832,18 @@
 
         <div class="cobrand">
           <svg class="pf-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1078 438" role="img" aria-label="PropertyFinder"><path fill="#ef5e4e" fill-rule="nonzero" d="M144.3.7C223.6.7 288 65.5 288 145.5c0 12.5-1.6 24.6-4.5 36.2-3.3 12.8-8.3 25-14.7 36.2-6.3 11-14 21.1-22.9 30-26 26.2-61.9 42.4-101.5 42.4v-1.9c-1.4-41.3-19.1-78.4-46.7-105-25.4-24.5-59.4-40.1-96.8-41.9 1-38.4 16.9-73 42-98.4C68.7 16.9 104.6.7 144.3.7zM.7 435.1c79.3 0 143.7-64.8 143.7-144.8H.7v144.8zm650.9.3h21V299l-22 4v45.5c-7.6-6.8-17.4-10.8-28-10.8-25.6 0-47.3 22.4-47.3 50.1 0 27.7 21.4 50.1 46.9 50.1 11.4 0 21.6-4.6 29.4-12.2v9.7zm128-18.4l-17.8-12.6c-5.2 8-14 12.4-23.6 12.4-13.8 0-24.6-9-27.6-21.2h71.7c.4-3.2.6-6 .6-9.4 0-27.6-19-48.5-46.5-48.5-29.2 0-49.1 22.4-49.1 50.1 0 27.7 21.6 50.1 50.7 50.1 17.3-.1 32.4-8.1 41.6-20.9zm75.1-56.3v-20.6c-3.4-.6-6-1-9.4-1-12.8 0-23 6.4-26.2 16.6v-16.6l-21.6 4v92.3h22v-74.7h35.2zm-337.7-2c13.6 0 21.6 8.4 21.6 25.6v51.1h22v-54.1c0-23.8-12.8-43.7-38.7-43.7-12 0-22.4 4.6-30.2 12.2V339l-21 4v92.3h22v-63.9c5.1-7.7 13.7-12.7 24.3-12.7zm109.4 58.1c-16 0-28.6-13-28.6-29s12.6-29 28.6-29c10.2 0 19.2 5.4 24.2 13.6v30.8c-5 8.2-14 13.6-24.2 13.6zm109.9-59.1c12.6 0 21.4 8 23.6 20h-49.5c2.9-11.6 12.1-20 25.9-20zm-305.6 77.7h22v-95.3h-22v95.3zM335.5 300v135.4h23v-54.1h49.1v-22.2h-49.1v-36.9h55.7V300h-78.7zm106-1.8c-8 0-14.8 6.6-14.8 14.8 0 8.2 6.8 15 14.8 15 8.2 0 15.2-6.8 15.2-15s-7-14.8-15.2-14.8zm228.1-58.4c25.6 0 47.3-22.4 47.3-50.1 0-27.6-21.4-50.1-46.9-50.1-11.2 0-21.4 4.6-29.2 12V141l-21 4v128.6h22v-44.5c7.6 6.7 17.2 10.7 27.8 10.7zm152.2-20.9L804 206.3c-5.2 8-14 12.4-23.6 12.4-13.6 0-24.2-8.8-27.6-20.8h71.7c.4-3.4.6-6.2.6-9.8 0-27.6-19-48.5-46.5-48.5-29.2 0-49.1 22.4-49.1 50.1 0 27.6 21.6 50.1 50.7 50.1 17.4 0 32.4-8 41.6-20.9zm-320.6-56.2V142c-3.4-.6-6-1-9.4-1-12.6 0-22.8 6.4-26 16.6V141l-21.6 4v92.3H466v-74.7h35.2v.1zm395.8 0V142c-3.4-.6-6-1-9.4-1-12.6 0-22.8 6.4-26 16.6V141l-21.8 4v92.3h22v-74.7H897v.1zm75.9 70.7l-8.6-19c-4.2 2-10 4.4-16.8 4.4-11.8 0-17.8-7.4-17.8-19v-37.1H966V142h-36.3v-27.6l-21.8 4v81.3c0 24.4 13.4 40.1 38.9 40.1 10.8 0 19.9-3.6 26.1-6.4zm-417.4-14.7c-15.2 0-27.4-12.6-27.4-29s12.2-29 27.4-29c15 0 27.4 12.6 27.4 29s-12.4 29-27.4 29zm110.3 0c-10 0-19-5.2-24-13.2v-31.6c5-8 14-13.2 24-13.2 16 0 28.6 13 28.6 29s-12.6 29-28.6 29zm112.8-58.9c12.8 0 21.4 8 23.6 19.8h-49.5c2.9-11.3 12.1-19.8 25.9-19.8zm243.1 113.8l56.1-131.6h-24.4l-26.8 64.9-27.4-64.9h-24.6l40.3 91.3-17 40.3h23.8zm-466.2-33.8c27.2 0 49.7-22 49.7-50.1 0-28-22.4-50.1-49.7-50.1-27.4 0-49.9 22-49.9 50.1 0 28 22.4 50.1 49.9 50.1zM384.6 124.2c12.6 0 21.8 8.8 21.8 20.2 0 11.6-9.4 21-22.2 21h-25.4v-41.3h25.8v.1zm.8-22.2h-49.9v135.4h23.2v-49.7h25.8c25.2 0 45.7-19 45.7-43.3.1-24-20-42.4-44.8-42.4z"></path></svg>
+          <svg class="bayut-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 74 20" role="img" aria-label="Bayut"><path fill="#28b16d" d="m51 13.53-.11.08a2.8 2.8 0 0 1-2.28 1.1 5 5 0 0 1-2.32-.45 3.8 3.8 0 0 1-2.07-3 7 7 0 0 1-.07-1V6.07c0-.56.17-.73.73-.73h1.22c.49 0 .69.21.69.7v4.27a2.5 2.5 0 0 0 .5 1.56A2.25 2.25 0 0 0 51 11.3a1 1 0 0 0 .06-.41V6.06c0-.59.17-.76.75-.76H53q.72-.01.71.71v9.07a4.3 4.3 0 0 1-2.38 4 6 6 0 0 1-3.16.61 5 5 0 0 1-1.95-.45 1.2 1.2 0 0 1-.86-1.33v-.69a.44.44 0 0 1 .68-.43c.34.15.66.35 1 .48a4 4 0 0 0 2.42.16A2 2 0 0 0 51 15.46v-1.93M24.34 5.55a13 13 0 0 1 1.32-.45 5.6 5.6 0 0 1 3.14.08 4.1 4.1 0 0 1 2.8 3.4 5.5 5.5 0 0 1-.09 2.62 4.5 4.5 0 0 1-2.8 3 6.1 6.1 0 0 1-5.76-.51 5 5 0 0 1-.73-.61 1.5 1.5 0 0 1-.48-1.08V1.71a.9.9 0 0 1 .48-.85l1.35-.79c.45-.26.77 0 .77.46zm0 4.3v1.83a.5.5 0 0 0 .22.42 3 3 0 0 0 2.35.47 2.3 2.3 0 0 0 1.85-1.48A4 4 0 0 0 29 9.44a2.6 2.6 0 0 0-.84-1.82 3.1 3.1 0 0 0-3.63.06.5.5 0 0 0-.13.34c-.07.61-.06 1.22-.06 1.83M11.26-.07a7.34 7.34 0 0 1 6.91 5.77 7.4 7.4 0 0 1-4.36 8.48 7.2 7.2 0 0 1-8-1.79c-.4-.45-.41-.45-.92-.15l-3.33 2c-.57.33-.81.27-1.14-.3l-.31-.55a.64.64 0 0 1 .27-1l3.43-2c.52-.31.51-.3.35-.86A7.4 7.4 0 0 1 8.87.33a7 7 0 0 1 1-.26c.47-.07.93-.07 1.39-.14m5.66 7.43a5.9 5.9 0 0 0-5.75-5.95 5.9 5.9 0 0 0-5.88 5.75A5.9 5.9 0 0 0 11 13.27a5.87 5.87 0 0 0 5.92-5.91m22.99 6.07-.15.12a2.6 2.6 0 0 1-1.86 1.1 4.5 4.5 0 0 1-4.17-1.38 4.5 4.5 0 0 1-1.13-2.69 5.2 5.2 0 0 1 .47-3 4.6 4.6 0 0 1 3.13-2.42 7 7 0 0 1 5.28.64l.16.1a1.6 1.6 0 0 1 .9 1.62v6.07a2 2 0 0 1 0 .42.5.5 0 0 1-.5.42h-1.58q-.5-.02-.55-.59zm0-5.63a.5.5 0 0 0-.25-.45A3 3 0 0 0 38.28 7a2.55 2.55 0 0 0-2.91 1.9 4 4 0 0 0 0 1.91A2.43 2.43 0 0 0 39.33 12a1.4 1.4 0 0 0 .57-1.22 59 59 0 0 1 0-2.98zm22.4 5.63-.16.14a2.5 2.5 0 0 1-1.73 1.07 4.5 4.5 0 0 1-3.22-.56 3.8 3.8 0 0 1-1.74-2.87 7 7 0 0 1-.07-1V6.02c0-.56.16-.73.73-.73h1.25A.6.6 0 0 1 58 6v4.29a2.5 2.5 0 0 0 .54 1.63 2.27 2.27 0 0 0 3.67-.63 1 1 0 0 0 0-.34V6.07c0-.56.18-.74.75-.74h1.19q.7-.01.69.7v7.69c0 .54-.2.74-.73.74H63c-.48 0-.67-.19-.68-.67zm4.32-6.53V3.27a.9.9 0 0 1 .45-.81l1.35-.79.12-.06a.46.46 0 0 1 .68.44v2.89c0 .34 0 .35.36.35H73c.67 0 .81.14.82.8v.64q0 .64-.63.64h-3.58c-.39 0-.39 0-.39.38v2.39a4 4 0 0 0 .15 1 2.1 2.1 0 0 0 2.3 1.44 2.5 2.5 0 0 0 1.45-.58l.13-.09a.5.5 0 0 1 .56-.1c.2.11.18.31.18.49v.85a1 1 0 0 1-.47.89 4 4 0 0 1-2.23.65 5 5 0 0 1-2.53-.56 3.9 3.9 0 0 1-2-3.08 17 17 0 0 1-.08-2c-.06-.72-.05-1.43-.05-2.15"/><path fill="#28b16d" d="M14.91 8.06v1.88q.02.63-.61.61h-1.44q-.5.02-.49-.48V8.56a1.3 1.3 0 0 0-1.09-1.25 1.26 1.26 0 0 0-1.39 1 3 3 0 0 0 0 .69v1.06q.01.52-.51.52h-1.5a.54.54 0 0 1-.6-.58V6.26a.7.7 0 0 1 .4-.71q1.42-.8 2.81-1.65a1.05 1.05 0 0 1 1.21 0q1.42.85 2.85 1.68a.6.6 0 0 1 .34.6v1.91z"/></svg>
           <span class="x">×</span>
           <svg class="sykon-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1061.404 285.298" role="img" aria-label="Sykon Properties"><defs><style>.sk-a{fill-rule:evenodd;}.sk-a,.sk-b{fill:#111111;}</style></defs><polygon class="sk-a" points="212.099 20.538 280.647 20.538 312.386 87.272 343.8 20.538 408.258 20.538 343.8 133.572 343.8 179.053 280.647 179.053 280.647 133.572 212.099 20.538 212.099 20.538"/><polygon class="sk-a" points="417.094 20.538 480.08 20.538 480.08 72.115 537.017 20.538 616.199 20.538 555.502 77.714 626.997 179.053 553.703 179.053 506.749 113.802 480.08 137.033 480.08 179.053 417.094 179.053 417.094 20.538 417.094 20.538"/><polygon class="sk-a" points="844.012 20.538 915.344 20.538 983.077 111.331 983.077 20.538 1041.484 20.538 1041.484 179.053 971.789 179.053 901.438 85.133 901.438 179.053 844.012 179.053 844.012 20.538 844.012 20.538"/><path class="sk-a" d="M141.007,61.978c-2.936-9.06-15.123-16.31-32.053-16.31-13.316,0-20.765,5.27-21.217,10.874,0,2.636,1.13,5.436,4.062,7.414,2.936,1.979,8.352,2.967,13.545,3.46,3.836.33,13.543,1.647,19.411,2.801,5.868.99,13.542,1.815,18.962,2.64,14.446,2.138,33.404,3.953,44.466,8.07,11.058,3.958,18.281,9.064,23.927,15.325,5.868,6.26,9.026,18.621,9.026,27.681,0,13.017-8.8,27.684-18.507,35.923-9.481,8.236-19.188,11.203-34.762,14.829-15.349,3.296-32.05,4.449-50.108,4.449-17.833,0-41.309-2.142-55.98-6.593-14.672-4.449-21.217-9.06-30.246-17.298-8.8-8.403-11.285-17.631-12.188-28.507h78.778c1.577,6.425,10.155,10.546,12.865,11.368,6.771,1.978,7.9,1.814,15.349,1.814,16.929-.661,23.475-4.285,24.378-10.875,0-4.614-1.807-7.248-8.126-9.555-6.32-2.307-19.64-3.626-34.085-6.43-13.768-2.471-27.988-3.295-37.243-5.599-9.481-2.307-18.959-4.45-26.633-8.239-7.449-3.793-11.965-8.239-16.253-14.17-4.29-6.096-5.642-16.806-5.642-25.706.226-9.061,4.964-21.092,12.639-28.342,7.449-7.414,11.51-10.213,25.955-14.336,14.449-4.116,38.373-5.763,58.238-5.763,11.509,0,23.701.985,33.856,2.636,10.384,1.646,24.604,5.6,33.182,9.557,8.578,4.117,14.672,9.392,20.539,15.981,5.642,6.758,6.546,13.514,8.352,22.903h-74.487Z"/><path class="sk-a" d="M719.887,10.983c23.394,0,49.978,4.285,66.142,11.863,16.164,7.746,24.032,16.15,31.901,28.673,7.869,12.522,9.358,27.186,9.785,41.521,0,11.7-1.489,27.849-6.168,38.226-4.679,10.382-10.846,18.949-19.777,26.86-9.146,7.91-15.313,10.216-28.711,14.827-13.402,4.286-35.518,6.1-52.532,6.1-25.095-.168-49.978-2.967-66.142-10.878-15.952-8.402-25.31-17.628-32.54-30.48-7.229-13.017-8.933-29.494-8.933-44.159.214-11.206,1.915-25.045,6.382-34.766,4.464-9.725,9.57-16.81,18.289-24.552,8.935-7.578,16.164-11.7,29.562-16.15,13.397-4.446,35.306-6.917,52.743-7.085h0ZM720.738,49.212c-7.442,0-16.376,1.812-22.332,5.108-5.741,3.297-11.696,8.567-14.887,15.323-3.189,6.59-5.529,15.325-5.529,24.882.427,14.499,3.828,25.537,10.635,33.116,6.591,7.746,19.991,12.525,32.112,12.525,13.186-.165,27.011-5.932,32.967-13.841,5.952-8.073,8.719-17.797,8.93-30.153,0-13.674-2.55-23.563-8.93-32.131-6.168-8.566-19.569-14.829-32.967-14.829h0Z"/><path class="sk-b" d="M18.383,217.981h21.117c10.828,0,18.229,6.044,18.229,16.181,0,10.836-7.803,16.582-18.676,16.582h-13.239v22.852h-7.43v-55.616ZM25.813,244.54h12.879c7.614,0,11.429-3.721,11.429-10.189,0-6.777-4.617-10.166-11.137-10.166h-13.171v20.355Z"/><path class="sk-b" d="M137.836,249.1v24.497h-7.316v-55.616h21.735c11.429,0,17.519,6.199,17.519,14.878,0,7.227-4.153,11.61-9.481,13.082,4.537,1.217,8.49,4.606,8.49,14.259v2.386c0,3.833-.178,8.682.745,11.011h-7.167c-1.014-2.398-.945-6.734-.945-11.953v-1.183c0-7.92-2.234-11.36-12.208-11.36h-11.372ZM137.836,242.896h12.094c8.502,0,12.237-3.197,12.237-9.447,0-5.912-3.856-9.264-11.406-9.264h-12.924v18.711Z"/><path class="sk-b" d="M292.842,245.474c0,15.296-8.582,28.922-26.101,28.922-16.367,0-25.505-12.652-25.505-28.607s9.327-28.607,26.152-28.607c15.657,0,25.453,11.759,25.453,28.292ZM248.959,245.548c0,12.022,6.153,22.557,18.109,22.557,12.913,0,18.052-10.641,18.052-22.523,0-11.982-5.826-22.111-18.035-22.111-12.604,0-18.126,10.212-18.126,22.076Z"/><path class="sk-b" d="M366.699,217.981h21.117c10.828,0,18.229,6.044,18.229,16.181,0,10.836-7.803,16.582-18.676,16.582h-13.239v22.852h-7.43v-55.616ZM374.129,244.54h12.879c7.614,0,11.429-3.721,11.429-10.189,0-6.777-4.617-10.166-11.137-10.166h-13.171v20.355Z"/><path class="sk-b" d="M513.73,247.599h-27.659v19.679h30.375l-.951,6.319h-36.659v-55.616h36.218v6.319h-28.982v16.98h27.659v6.319Z"/><path class="sk-b" d="M596.129,249.1v24.497h-7.316v-55.616h21.735c11.429,0,17.519,6.199,17.519,14.878,0,7.227-4.153,11.61-9.481,13.082,4.537,1.217,8.49,4.606,8.49,14.259v2.386c0,3.833-.178,8.682.745,11.011h-7.167c-1.014-2.398-.945-6.734-.945-11.953v-1.183c0-7.92-2.234-11.36-12.208-11.36h-11.372ZM596.129,242.896h12.094c8.502,0,12.237-3.197,12.237-9.447,0-5.912-3.856-9.264-11.406-9.264h-12.924v18.711Z"/><path class="sk-b" d="M714.533,224.3h-17.966v-6.319h43.379v6.319h-17.989v49.297h-7.425v-49.297Z"/><path class="sk-b" d="M817.59,217.981v55.616h-7.379v-55.616h7.379Z"/><path class="sk-b" d="M929.91,247.599h-27.659v19.679h30.375l-.951,6.319h-36.659v-55.616h36.218v6.319h-28.982v16.98h27.659v6.319Z"/><path class="sk-b" d="M1009.118,258.117c1.507,6.668,6.067,10.272,14.127,10.272,8.674,0,12.111-4.068,12.111-9.324,0-5.577-2.738-8.702-13.893-11.4-13.102-3.182-17.651-7.671-17.651-15.491,0-8.258,6.09-14.992,18.504-14.992,13.245,0,18.693,7.657,19.444,14.961h-7.505c-.997-4.95-4.09-9.012-12.208-9.012-6.772,0-10.57,3.051-10.57,8.35,0,5.222,3.139,7.281,12.884,9.642,15.858,3.858,18.659,10.031,18.659,17.172,0,8.969-6.645,15.998-20.246,15.998-13.99,0-20.011-7.645-21.162-16.175h7.505Z"/></svg>
         </div>
 
         <h1>Listing photos, sorted</h1>
         <p class="sub">Paste a PropertyFinder link and download every photo — property &amp; community, full resolution, in tidy folders.</p>
+
+        <div class="src" role="tablist" aria-label="Source">
+          <button class="src-btn" id="srcPF" type="button" role="tab" aria-selected="true">PropertyFinder</button>
+          <button class="src-btn" id="srcBayut" type="button" role="tab" aria-selected="false">Bayut</button>
+        </div>
 
         <div class="seg" role="tablist" aria-label="Mode">
           <button class="seg-btn" id="segSingle" type="button" role="tab" aria-selected="true" aria-controls="paneSingle">One listing</button>
@@ -1029,16 +1083,19 @@
     const statusEl = $("status"), zipAllBtn = $("zipAll"), retryBtn = $("retryFailed");
     const segSingle = $("segSingle"), segBatch = $("segBatch"), segAgent = $("segAgent");
     const paneSingle = $("paneSingle"), paneBatch = $("paneBatch"), paneAgent = $("paneAgent");
+    const srcPF = $("srcPF"), srcBayut = $("srcBayut");
     const agentQ = $("agentQ"), agentNote = $("agentNote"), agentPicks = $("agentPicks");
     const pickRent = $("pickRent"), pickBuy = $("pickBuy");
     const pickRentN = $("pickRentN"), pickBuyN = $("pickBuyN");
 
-    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="#ef5e4e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
     const CROSS = '<svg viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     const SPIN = '<span class="spinner"></span>';
     const INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="#817550" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><line x1="12" y1="7.5" x2="12" y2="7.6"/></svg>';
 
     let mode = "single";
+    let source = "propertyfinder";
+    let bayutReady = true;                 // until /capabilities says otherwise
     let busy = false;
     let singleAbort = null, singleStartedAt = 0, singleStopped = false;
     let activeLine = null;
@@ -1107,13 +1164,21 @@
     // page does not. Catching that here turns a 20-second server round trip and
     // a confusing error into an instant, specific one.
     function looksLikeListing(u) {
+      // PF: …-<id>.html ; Bayut: …/property/details-<id>.html — both end in digits.html
       try { return /-\d{4,}\.html?$/i.test(new URL(u).pathname); }
       catch (e) { return false; }
     }
-    function isPfUrl(u) {
-      try { return new URL(u).hostname.toLowerCase().indexOf("propertyfinder.") !== -1; }
-      catch (e) { return false; }
+    function urlSource(u) {
+      try {
+        const h = new URL(u).hostname.toLowerCase();
+        if (h.indexOf("propertyfinder.") !== -1) return "propertyfinder";
+        if (/(^|\.)bayut\.com$/.test(h)) return "bayut";
+      } catch (e) {}
+      return null;
     }
+    // A link is acceptable if it belongs to the currently selected source.
+    function isPfUrl(u) { return urlSource(u) === source; }
+    function sourceName() { return source === "bayut" ? "Bayut" : "PropertyFinder"; }
     function canonical(u) {
       try { const x = new URL(u); return x.protocol + "//" + x.hostname.toLowerCase() + x.pathname.replace(/\/+$/, ""); }
       catch (e) { return (u || "").toLowerCase(); }
@@ -1259,10 +1324,10 @@
     /* ------------------------------ single ------------------------------ */
     async function runSingle() {
       const url = urlInput.value.trim();
-      if (!url) { setStatus("Paste a PropertyFinder link first.", "bad"); urlInput.focus(); return; }
-      if (!isPfUrl(url)) { setStatus("That doesn't look like a PropertyFinder link.", "bad"); return; }
+      if (!url) { setStatus("Paste a " + sourceName() + " link first.", "bad"); urlInput.focus(); return; }
+      if (!isPfUrl(url)) { setStatus("That doesn't look like a " + sourceName() + " link.", "bad"); return; }
       if (!looksLikeListing(url)) {
-        setStatus("That's a PropertyFinder page but not a single listing — open the property and copy its link.", "bad");
+        setStatus("That's a " + sourceName() + " page but not a single listing — open the property and copy its link.", "bad");
         urlInput.focus(); return;
       }
 
@@ -1374,7 +1439,7 @@
       if (!urlsInput.value.trim()) { counter.textContent = ""; return; }
       const bits = [list.length + (list.length === 1 ? " link" : " links")];
       if (dupes) bits.push(dupes + " duplicate" + (dupes === 1 ? "" : "s") + " removed");
-      if (bad) bits.push(bad + " not a PropertyFinder link");
+      if (bad) bits.push(bad + " not a " + sourceName() + " link");
       counter.textContent = bits.join(" · ");
     }
 
@@ -1743,7 +1808,7 @@
     async function runBatch() {
       const parsed = parseLinks();
       if (!parsed.list.length) {
-        setStatus("Paste at least one PropertyFinder link.", "bad"); urlsInput.focus(); return;
+        setStatus("Paste at least one " + sourceName() + " link.", "bad"); urlsInput.focus(); return;
       }
       resetResults("rows");
       optMeta = {}; optRender();
@@ -1888,6 +1953,37 @@
         .focus({ preventScroll: true });
     }
 
+    /* ------------------------------ source ------------------------------ */
+    function setSource(next) {
+      if (busy || queueBusy) return;
+      source = next;
+      const pf = source === "propertyfinder";
+      srcPF.setAttribute("aria-selected", String(pf));
+      srcBayut.setAttribute("aria-selected", String(!pf));
+      // One attribute re-skins the whole card: every accent routes through the
+      // variables the [data-source="bayut"] block overrides.
+      document.documentElement.setAttribute("data-source", source);
+      // Agent mode is PropertyFinder-only — Bayut's agent pages are walled and
+      // paginate in the browser, a separate problem. Hide the tab for Bayut.
+      segAgent.hidden = !pf;
+      if (!pf && mode === "agent") setMode("single");
+      // Retarget the inputs and the help text at the active source.
+      urlInput.placeholder = pf ? "https://www.propertyfinder.ae/en/plp/..."
+                                : "https://www.bayut.com/property/details-...";
+      urlsInput.placeholder = pf
+        ? "https://www.propertyfinder.ae/en/plp/...\nhttps://www.propertyfinder.ae/en/plp/..."
+        : "https://www.bayut.com/property/details-...\nhttps://www.bayut.com/property/details-...";
+      p("sub").textContent = pf
+        ? "Paste a PropertyFinder link and download every photo — property & community, full resolution, in tidy folders."
+        : "Paste a Bayut link and download every photo, in tidy folders."
+          + (bayutReady ? "" : " (Bayut isn't set up on the server yet.)");
+      setStatus(!pf && !bayutReady
+        ? "Bayut downloads aren't switched on for this server yet." : "", "bad");
+    }
+    function p(cls) { return document.querySelector("." + cls); }
+
+    srcPF.addEventListener("click", () => setSource("propertyfinder"));
+    srcBayut.addEventListener("click", () => setSource("bayut"));
     segSingle.addEventListener("click", () => setMode("single"));
     segBatch.addEventListener("click", () => setMode("batch"));
     segAgent.addEventListener("click", () => setMode("agent"));
@@ -2542,6 +2638,7 @@
         const d = await r.json();
         const spec = (d && d.options) || {};
         optCaps = spec.naming ? "ok" : "old";
+        if (d && d.sources) applySources(d.sources);
         if (spec.max_images && typeof spec.max_images.max === "number") {
           optMaxCeil = spec.max_images.max;
           if (optState.max_images > optMaxCeil) { optState.max_images = optMaxCeil; optSave(); }
@@ -2553,10 +2650,27 @@
     }
     optToggle.addEventListener("click", () => { if (optOpen) optProbeCaps(); });
 
+    /* Whether Bayut is switched on server-side. The pill is always shown so the
+       feature is discoverable; when it is off, selecting it says so plainly and
+       a run returns the backend's own clear message. */
+    function applySources(sources) {
+      bayutReady = !!(sources && sources.bayut);
+      srcBayut.title = bayutReady ? "" : "Not set up on the server yet";
+      if (source === "bayut") setSource("bayut");   // refresh the hint text
+    }
+    async function probeSources() {
+      try {
+        const r = await fetch(BACKEND_URL + "/capabilities", { cache: "no-store" });
+        if (r.ok) { const d = await r.json(); if (d && d.sources) applySources(d.sources); }
+      } catch (e) {}
+    }
+
     /* ------------------------------ init ------------------------------ */
     optState = optLoad();
     optRender();
     optReady = true;
+    setSource("propertyfinder");
+    probeSources();
   </script>
 </body>
 </html>
