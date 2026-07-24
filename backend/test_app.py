@@ -301,6 +301,42 @@ def test_frontend_mirror_in_sync():
     check("every wired option exists server-side", not unknown, unknown)
 
 
+def test_bayut():
+    """Bayut is a second source behind a bot wall; the CDN it downloads from is
+    open. The parser must lift the gallery cleanly and the guards must not open
+    an SSRF hole."""
+    print("\nBayut")
+    import os
+    fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_bayut_fixture.html")
+    if not os.path.exists(fixture):
+        check("fixture present", False, fixture)
+        return
+    html = open(fixture, encoding="utf-8").read()
+
+    tasks, meta = backend.parse_bayut(html, "https://www.bayut.com/property/details-1.html")
+    eq("gallery is the 17 contiguous 800x600 photos", len(tasks), 17)
+    eq("reference from breadcrumb", meta.get("reference"), "sykon-R-2262")
+    check("title cleaned of ' | Bayut.com'", meta.get("title", "").endswith("Multiple Views"), meta.get("title"))
+    check("no agent/related strays", not any(
+        s in t[0] for t in tasks for s in ("75236131", "741746521", "844813630")), "strays leaked")
+    check("all photos are jpeg from the CDN",
+          all(t[0].startswith("https://images.bayut.com/thumbnails/") and t[0].endswith(".jpeg") for t in tasks))
+
+    check("bayut listing host accepted", backend.listing_host_ok("https://www.bayut.com/property/x.html"))
+    check("bayut image host accepted", backend.image_host_ok("https://images.bayut.com/thumbnails/1-800x600.jpeg"))
+    check("bayut lookalike host rejected", not backend.listing_host_ok("https://bayut.com.evil.com/x"))
+    check("bayut image lookalike rejected", not backend.image_host_ok("https://images.bayut.com.evil.com/x.jpg"))
+    eq("source detection", backend.source_of("https://www.bayut.com/x"), "bayut")
+
+    check("unconfigured by default", not backend.bayut_configured())
+    _, _, status = backend.bayut_pipeline("https://www.bayut.com/x")
+    eq("pipeline reports unconfigured", status, "unconfigured")
+
+    # A page that did not actually pass the wall (challenge JS) yields nothing.
+    empty, _ = backend.parse_bayut("<html><body>just a challenge</body></html>", "https://www.bayut.com/x")
+    eq("no photos from an unsolved page", len(empty), 0)
+
+
 def test_http_contract():
     print("\nHTTP contract")
     c = backend.app.test_client()
@@ -378,6 +414,7 @@ if __name__ == "__main__":
     test_safe_zip_name()
     test_options()
     test_frontend_mirror_in_sync()
+    test_bayut()
     test_pattern_parsing()
     test_agent_name()
     test_render_names()

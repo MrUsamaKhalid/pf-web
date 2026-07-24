@@ -274,6 +274,41 @@ def host_ok(url):
         return False
 
 
+# Bayut is a second source. Its listing pages sit behind a bot wall (fetched via
+# an unblocker), but its image CDN is open and is where photos actually download
+# from — so the SSRF guard on image downloads must allow it too.
+BAYUT_HOST_RE = re.compile(r"(?:[a-z0-9-]+\.)*bayut\.com")
+BAYUT_IMG_RE = re.compile(r"images(?:[0-9]+)?\.bayut\.com")
+
+
+def _hostname(url):
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def listing_host_ok(url):
+    """A URL that /scrape will accept: PropertyFinder or Bayut."""
+    h = _hostname(url)
+    return bool(HOST_RE.fullmatch(h) or BAYUT_HOST_RE.fullmatch(h))
+
+
+def image_host_ok(url):
+    """A host an image may be downloaded/redirected to — the SSRF allowlist."""
+    h = _hostname(url)
+    return bool(HOST_RE.fullmatch(h) or BAYUT_IMG_RE.fullmatch(h))
+
+
+def source_of(url):
+    h = _hostname(url)
+    if BAYUT_HOST_RE.fullmatch(h):
+        return "bayut"
+    if HOST_RE.fullmatch(h):
+        return "propertyfinder"
+    return None
+
+
 _TOKEN_RE = re.compile(r"\{([A-Za-z_]{0,16})\}")
 # Illegal on Win32, plus ':' (the drive marker in "C:" and the classic Finder
 # separator), both path separators, and all whitespace — this app speaks
@@ -887,6 +922,102 @@ def build_manifest_json(url, meta, entries, opts):
 
 
 # --------------------------------------------------------------------------- #
+# Bayut
+# --------------------------------------------------------------------------- #
+# Bayut serves a JS bot-challenge to every non-browser request, so the listing
+# page is fetched through a scraping-unblocker the operator configures. The
+# template is provider-agnostic: paste any provider's URL with your key in it
+# and a {url} (raw) or {url_enc} (percent-encoded) placeholder for the target.
+#   ScraperAPI : https://api.scraperapi.com/?api_key=KEY&render=true&premium=true&url={url_enc}
+#   ScrapingBee: https://app.scrapingbee.com/api/v1/?api_key=KEY&render_js=true&url={url_enc}
+# Nothing here embeds a key; without one, Bayut simply reports it is not set up.
+UNBLOCKER_TEMPLATE = os.environ.get("UNBLOCKER_TEMPLATE", "").strip()
+UNBLOCKER_TIMEOUT = 70                 # rendering a walled page is slow
+BAYUT_MAX_IMAGES = 60
+# Only the largest preset the CDN serves — 1200x900+ returns 403. Real output is
+# ~880x600, smaller than PropertyFinder; that is Bayut's ceiling, not ours.
+BAYUT_IMG_SIZE = "800x600"
+_BAYUT_THUMB_RE = re.compile(
+    r"https://images(?:[0-9]+)?\.bayut\.com/thumbnails/(\d+)-800x600\.(?:jpe?g|webp)", re.I)
+_BAYUT_REF_RE = re.compile(r"Bayut\s*[-–]\s*([A-Za-z0-9][\w-]{1,40})")
+_BAYUT_LDNAME_RE = re.compile(r'"@type"\s*:\s*"RealEstateListing".*?"name"\s*:\s*"([^"]+)"', re.S)
+_OG_TITLE_RE = re.compile(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', re.I)
+
+
+def bayut_configured():
+    return bool(UNBLOCKER_TEMPLATE) and ("{url}" in UNBLOCKER_TEMPLATE
+                                         or "{url_enc}" in UNBLOCKER_TEMPLATE)
+
+
+def bayut_fetch(url):
+    """The listing's rendered HTML, via the configured unblocker. None on failure."""
+    if not bayut_configured():
+        return None
+    fetch_url = UNBLOCKER_TEMPLATE.replace("{url_enc}", quote(url, safe="")).replace("{url}", url)
+    try:
+        r = requests.get(fetch_url, timeout=UNBLOCKER_TIMEOUT)
+    except requests.RequestException:
+        app.logger.exception("unblocker request failed")
+        return None
+    if r.status_code != 200 or len(r.text) < 2000:
+        app.logger.info("unblocker returned %s (%d bytes)", r.status_code, len(r.text))
+        return None
+    return r.text
+
+
+def parse_bayut(html, url):
+    """Extract the gallery and metadata from a rendered Bayut listing page.
+
+    The gallery is the block of 800x600 thumbnails, deduped in document order;
+    agent logos and related-listing tiles are served at smaller sizes and so are
+    excluded by the size filter. Returns (tasks, meta) matching the PF pipeline,
+    or ([], {}) if the page did not parse (e.g. the wall was not actually solved).
+    """
+    if not html:
+        return [], {}
+
+    seen, tasks = set(), []
+    for m in _BAYUT_THUMB_RE.finditer(html):
+        img_id = m.group(1)
+        if img_id in seen:
+            continue
+        seen.add(img_id)
+        # Ask the CDN for JPEG explicitly; it honours the extension in the path.
+        tasks.append(["https://images.bayut.com/thumbnails/%s-%s.jpeg"
+                      % (img_id, BAYUT_IMG_SIZE)])
+        if len(tasks) >= BAYUT_MAX_IMAGES:
+            break
+
+    meta = {}
+    ref = _BAYUT_REF_RE.search(html)
+    if ref:
+        meta["reference"] = ref.group(1)
+    name = _BAYUT_LDNAME_RE.search(html) or _OG_TITLE_RE.search(html)
+    if name:
+        title = re.sub(r"\s*\|\s*Bayut\.com\s*$", "", name.group(1)).strip()
+        if title:
+            meta["title"] = title
+    for label, pat in (("price", r"AED\s*([\d,]+)\s*(?:yearly|monthly|/year)?"),
+                       ("bedrooms", r"(\d+)\s*-?\s*bed"),
+                       ("bathrooms", r"(\d+)\s*-?\s*bath")):
+        m = re.search(pat, html, re.I)
+        if m:
+            meta[label] = ("AED " + m.group(1)) if label == "price" else m.group(1)
+    return tasks, meta
+
+
+def bayut_pipeline(url):
+    """Returns (tasks, meta, status). status is 'ok' | 'unconfigured' | 'blocked'."""
+    if not bayut_configured():
+        return [], {}, "unconfigured"
+    html = bayut_fetch(url)
+    if html is None:
+        return [], {}, "blocked"
+    tasks, meta = parse_bayut(html, url)
+    return tasks, meta, ("ok" if tasks else "blocked")
+
+
+# --------------------------------------------------------------------------- #
 # Downloading (streams to disk — peak memory is one chunk, not one ZIP)
 # --------------------------------------------------------------------------- #
 def image_headers(want_jpeg):
@@ -910,8 +1041,8 @@ def download_to(dest_path, candidates, want_jpeg):
             size = 0
             head = b""
             try:
-                # a redirect must not walk us off PropertyFinder's hosts
-                if not host_ok(r.url):
+                # a redirect must not walk us off an allowed image host
+                if not image_host_ok(r.url):
                     break
                 if r.status_code != 200:
                     if r.status_code in (400, 401, 403, 404, 410):
@@ -1330,6 +1461,9 @@ def capabilities():
         "job_deadline": JOB_DEADLINE,
         "zip_ttl": ZIP_TTL,
         "max_total_bytes": MAX_TOTAL_BYTES,
+        # The frontend renders the source pill from this: PropertyFinder always,
+        # Bayut only when an unblocker is configured.
+        "sources": {"propertyfinder": True, "bayut": bayut_configured()},
     })
 
 
@@ -1382,8 +1516,13 @@ def scrape():
         return jsonify({"error": "Missing 'url' in request body.", "code": "bad_request"}), 400
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-    if not host_ok(url):
-        return jsonify({"error": "URL must be a PropertyFinder listing.", "code": "bad_url"}), 400
+    source = source_of(url)
+    if source is None:
+        return jsonify({"error": "URL must be a PropertyFinder or Bayut listing.",
+                        "code": "bad_url"}), 400
+    if source == "bayut" and not bayut_configured():
+        return jsonify({"error": "Bayut downloads aren't set up on this server yet.",
+                        "code": "bayut_unconfigured"}), 503
 
     # validated here, in the view body — inside generate() the 200 is already
     # committed and a validation failure would be indistinguishable from a
@@ -1414,65 +1553,94 @@ def scrape():
 
             yield nd({"type": "log", "message": "Reading listing data"})
             _stat("scrapes")
-            data, page_status = next_data_via_requests(url)
-            _stat("direct_ok" if data is not None else "direct_fail")
-            if data is None:
-                app.logger.warning("direct read failed for %s (status %s)", url, page_status)
-                if page_status in (404, 410):
-                    yield nd({"type": "error", "code": "listing_gone",
-                              "message": "That listing no longer exists on PropertyFinder."})
-                else:
-                    yield nd({"type": "error", "code": "listing_unreadable",
-                              "message": "Could not read this listing right now — "
-                                         "try again in a moment."})
-                return
-
-            if not looks_like_listing(data):
-                yield nd({"type": "error", "code": "not_a_listing",
-                          "message": "That link doesn't open a listing — it was probably "
-                                     "removed or renamed. Open it in a browser and copy "
-                                     "the URL again."})
-                return
-
-            meta = extract_meta(data)
-            slug = listing_slug(meta, url)
-            if meta.get("title"):
-                yield nd({"type": "log", "message": "Listing: " + meta["title"]})
-            bits = []
-            for key, suffix in (("price", ""), ("bedrooms", " bed"), ("bathrooms", " bath"),
-                                ("size", ""), ("location", "")):
-                if meta.get(key) is not None:
-                    bits.append(f"{meta[key]}{suffix}")
-            if bits:
-                yield nd({"type": "log", "message": " · ".join(str(b) for b in bits)})
-            yield nd({"type": "meta", "listing": meta, "slug": slug,
-                      "suggested_filename": (slug or "propertyfinder-photos") + ".zip"})
-            for note in naming_notes(opts["naming"], meta, opts):
-                yield nd({"type": "notice", "message": note})
-
             limit = int(opts["max_images"])
-            prop_tasks, comm_tasks, structured = extract_galleries(data, limit)
-            if not structured or (not prop_tasks and not comm_tasks):
-                fb = generic_fallback_tasks(data, limit)
-                if fb:
-                    yield nd({"type": "notice",
-                              "message": "The property/community split wasn't available for "
-                                         "this listing — downloading everything found."})
-                tasks = [("", c) for c in fb]
-                yield nd({"type": "log", "message": f"Found {len(fb)} images"})
+            prop_tasks, comm_tasks = [], []
+
+            if source == "bayut":
+                yield nd({"type": "log", "message": "Opening the listing (Bayut is slower)"})
+                b_tasks, meta, status = bayut_pipeline(url)
+                if status == "unconfigured":
+                    yield nd({"type": "error", "code": "bayut_unconfigured",
+                              "message": "Bayut downloads aren't set up on this server yet."})
+                    return
+                if status != "ok" or not b_tasks:
+                    yield nd({"type": "error", "code": "listing_unreadable",
+                              "message": "Couldn't read that Bayut listing — it may be "
+                                         "removed, or the unblocker didn't get through. "
+                                         "Try again in a moment."})
+                    return
+                b_tasks = b_tasks[:limit]
+                slug = listing_slug(meta, url)
+                if meta.get("title"):
+                    yield nd({"type": "log", "message": "Listing: " + meta["title"]})
+                yield nd({"type": "meta", "listing": meta, "slug": slug,
+                          "suggested_filename": (slug or "bayut-photos") + ".zip"})
+                for note in naming_notes(opts["naming"], meta, opts):
+                    yield nd({"type": "notice", "message": note})
+                # Bayut has a single gallery; keep the "property" tag so every
+                # folder/naming option behaves exactly as it does for PF.
+                tasks = [("property", c) for c in b_tasks]
+                prop_tasks = b_tasks
+                yield nd({"type": "log", "message": f"Downloading {len(tasks)} photos"})
             else:
-                tasks = []
-                if opts["property"]:
-                    tasks += [("property", c) for c in prop_tasks]
-                if opts["community"]:
-                    tasks += [("community", c) for c in comm_tasks]
-                yield nd({"type": "log",
-                          "message": f"Property images: {len(prop_tasks)}"
-                                     + ("" if opts["property"] else " (skipped)")})
-                yield nd({"type": "log",
-                          "message": f"Community images: {len(comm_tasks)}"
-                                     + ("" if opts["community"] else " (skipped)")})
-                yield nd({"type": "log", "message": f"Downloading {len(tasks)} images"})
+                data, page_status = next_data_via_requests(url)
+                _stat("direct_ok" if data is not None else "direct_fail")
+                if data is None:
+                    app.logger.warning("direct read failed for %s (status %s)", url, page_status)
+                    if page_status in (404, 410):
+                        yield nd({"type": "error", "code": "listing_gone",
+                                  "message": "That listing no longer exists on PropertyFinder."})
+                    else:
+                        yield nd({"type": "error", "code": "listing_unreadable",
+                                  "message": "Could not read this listing right now — "
+                                             "try again in a moment."})
+                    return
+
+                if not looks_like_listing(data):
+                    yield nd({"type": "error", "code": "not_a_listing",
+                              "message": "That link doesn't open a listing — it was probably "
+                                         "removed or renamed. Open it in a browser and copy "
+                                         "the URL again."})
+                    return
+
+                meta = extract_meta(data)
+                slug = listing_slug(meta, url)
+                if meta.get("title"):
+                    yield nd({"type": "log", "message": "Listing: " + meta["title"]})
+                bits = []
+                for key, suffix in (("price", ""), ("bedrooms", " bed"), ("bathrooms", " bath"),
+                                    ("size", ""), ("location", "")):
+                    if meta.get(key) is not None:
+                        bits.append(f"{meta[key]}{suffix}")
+                if bits:
+                    yield nd({"type": "log", "message": " · ".join(str(b) for b in bits)})
+                yield nd({"type": "meta", "listing": meta, "slug": slug,
+                          "suggested_filename": (slug or "propertyfinder-photos") + ".zip"})
+                for note in naming_notes(opts["naming"], meta, opts):
+                    yield nd({"type": "notice", "message": note})
+
+                prop_tasks, comm_tasks, structured = extract_galleries(data, limit)
+                if not structured or (not prop_tasks and not comm_tasks):
+                    fb = generic_fallback_tasks(data, limit)
+                    if fb:
+                        yield nd({"type": "notice",
+                                  "message": "The property/community split wasn't available for "
+                                             "this listing — downloading everything found."})
+                    tasks = [("", c) for c in fb]
+                    yield nd({"type": "log", "message": f"Found {len(fb)} images"})
+                else:
+                    tasks = []
+                    if opts["property"]:
+                        tasks += [("property", c) for c in prop_tasks]
+                    if opts["community"]:
+                        tasks += [("community", c) for c in comm_tasks]
+                    yield nd({"type": "log",
+                              "message": f"Property images: {len(prop_tasks)}"
+                                         + ("" if opts["property"] else " (skipped)")})
+                    yield nd({"type": "log",
+                              "message": f"Community images: {len(comm_tasks)}"
+                                         + ("" if opts["community"] else " (skipped)")})
+                    yield nd({"type": "log", "message": f"Downloading {len(tasks)} images"})
 
             if not tasks:
                 msg = ("Everything on this listing was excluded by your options."
