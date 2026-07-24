@@ -1006,6 +1006,42 @@ def parse_bayut(html, url):
     return tasks, meta
 
 
+def sanitize_supplied(supplied):
+    """Validate a bookmarklet payload: {images:[...], reference, title}.
+
+    Every image must be on Bayut's own CDN — this is the whole security boundary,
+    since these URLs are downloaded server-side. Anything else is dropped.
+    """
+    if not isinstance(supplied, dict):
+        return None
+    raw = supplied.get("images")
+    if not isinstance(raw, list):
+        return None
+    images, seen = [], set()
+    for u in raw:
+        if not isinstance(u, str):
+            continue
+        u = normalize_protocol(u.strip())
+        if not BAYUT_IMG_RE.fullmatch(_hostname(u)):
+            continue
+        if u in seen:
+            continue
+        seen.add(u)
+        images.append(u)
+        if len(images) >= BAYUT_MAX_IMAGES:
+            break
+    if not images:
+        return None
+    meta = {}
+    ref = supplied.get("reference")
+    if isinstance(ref, str) and ref.strip():
+        meta["reference"] = ref.strip()[:40]
+    title = supplied.get("title")
+    if isinstance(title, str) and title.strip():
+        meta["title"] = re.sub(r"\s*\|\s*Bayut\.com\s*$", "", title.strip())[:120]
+    return {"images": images, "meta": meta}
+
+
 def bayut_pipeline(url):
     """Returns (tasks, meta, status). status is 'ok' | 'unconfigured' | 'blocked'."""
     if not bayut_configured():
@@ -1520,9 +1556,15 @@ def scrape():
     if source is None:
         return jsonify({"error": "URL must be a PropertyFinder or Bayut listing.",
                         "code": "bad_url"}), 400
-    if source == "bayut" and not bayut_configured():
-        return jsonify({"error": "Bayut downloads aren't set up on this server yet.",
-                        "code": "bayut_unconfigured"}), 503
+
+    # The bookmarklet reads the gallery in the user's own browser (which passes
+    # Bayut's wall) and posts the image list here. When it does, no unblocker is
+    # needed — the CDN is open. The images are strictly validated to Bayut's own
+    # host so this can never be turned into an open image proxy.
+    supplied = sanitize_supplied(payload.get("supplied")) if source == "bayut" else None
+    if source == "bayut" and not supplied and not bayut_configured():
+        return jsonify({"error": "Open the Bayut listing and use the Bayut helper button.",
+                        "code": "bayut_needs_helper"}), 503
 
     # validated here, in the view body — inside generate() the 200 is already
     # committed and a validation failure would be indistinguishable from a
@@ -1557,18 +1599,20 @@ def scrape():
             prop_tasks, comm_tasks = [], []
 
             if source == "bayut":
-                yield nd({"type": "log", "message": "Opening the listing (Bayut is slower)"})
-                b_tasks, meta, status = bayut_pipeline(url)
-                if status == "unconfigured":
-                    yield nd({"type": "error", "code": "bayut_unconfigured",
-                              "message": "Bayut downloads aren't set up on this server yet."})
-                    return
-                if status != "ok" or not b_tasks:
-                    yield nd({"type": "error", "code": "listing_unreadable",
-                              "message": "Couldn't read that Bayut listing — it may be "
-                                         "removed, or the unblocker didn't get through. "
-                                         "Try again in a moment."})
-                    return
+                if supplied:
+                    # Gallery already read by the bookmarklet in the user's
+                    # browser; nothing to fetch, just download from the CDN.
+                    b_tasks = [[u] for u in supplied["images"]]
+                    meta = dict(supplied["meta"])
+                else:
+                    yield nd({"type": "log", "message": "Opening the listing (Bayut is slower)"})
+                    b_tasks, meta, status = bayut_pipeline(url)
+                    if status != "ok" or not b_tasks:
+                        yield nd({"type": "error", "code": "listing_unreadable",
+                                  "message": "Couldn't read that Bayut listing — it may be "
+                                             "removed, or the unblocker didn't get through. "
+                                             "Try again in a moment."})
+                        return
                 b_tasks = b_tasks[:limit]
                 slug = listing_slug(meta, url)
                 if meta.get("title"):
